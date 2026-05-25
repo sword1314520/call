@@ -17,6 +17,7 @@
 
 import os
 import json
+import sys
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -24,8 +25,11 @@ import requests
 
 # 加载环境变量
 load_dotenv()
-
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 app = Flask(__name__)
+app.config['JSON_AS_ASCII'] = False  # ✅ 中文 JSON 不转义
 CORS(app)  # 允许跨域请求
 
 # 配置
