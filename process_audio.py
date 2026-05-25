@@ -21,6 +21,9 @@ import os
 import json
 from pathlib import Path
 from datetime import datetime
+from analysis_service import analyze_transcript
+from mysql_storage import init_mysql_tables, save_case_record
+from oss_utils import upload_file_to_oss
 
 # ================= 配置区域 =================
 AUDIO_DIR = Path(__file__).parent / "audio"  # 原始音频目录
@@ -415,7 +418,7 @@ def map_speakers_to_roles(transcript: list) -> list:
 
 
 def generate_demo_data_js(transcript: list, audio_info: dict, emotion_timeline: dict, output_path: Path,
-                          base_name: str):
+                          base_name: str, summary: dict = None, qc_report: dict = None):
     """
     生成前端可读取的 demo_data.js 文件
 
@@ -442,11 +445,11 @@ def generate_demo_data_js(transcript: list, audio_info: dict, emotion_timeline: 
             "联系结果类标签": {"通话状态": "可联", "承诺还款": "待确认"},
             "客户画像类标签": {"还款意愿": "待分析", "经济状况": "待分析"},
             "行动项标签": {"下次联系时间": "待定", "风险等级": "待评估"}
-        },
+        } if summary is None else summary,
         "qcReport": {
             "score": 0,  # 质检评分待实现
             "violations": []
-        },
+        } if qc_report is None else qc_report,
         "emotionTimeline": emotion_timeline,
         "transcript": transcript
     }
@@ -493,21 +496,65 @@ def process_single_audio(input_path: Path, output_dir: Path) -> dict:
     emotion_result = run_emotion_recognition(wav_path)
     emotion_timeline = parse_emotion_result(emotion_result, duration)
 
-    # 6. 生成前端数据文件
+    # 6. 上传音频到阿里云 OSS
+    print("☁️  [OSS] 正在上传原始音频到阿里云 OSS...")
+    original_audio_oss = upload_file_to_oss(input_path, "original")
+    print(f"   └─ 原始音频已上传: {original_audio_oss['object_key']}")
+
+    print("☁️  [OSS] 正在上传 WAV 音频到阿里云 OSS...")
+    wav_audio_oss = upload_file_to_oss(wav_path, "wav")
+    print(f"   └─ WAV 音频已上传: {wav_audio_oss['object_key']}")
+
+    # 7. 调用 LLM 生成智能小结和质检报告
+    print("🤖 [LLM] 正在生成智能小结和质检报告...")
+    analysis_result = analyze_transcript(transcript)
+    summary = analysis_result["summary"]
+    qc_report = analysis_result["qcReport"]
+    print("✅ [LLM] 智能分析完成")
+
+    # 8. 生成前端数据文件
     js_output_path = PROJECT_ROOT / f"demo_data_{base_name}.js"
     audio_info = {"duration": duration, "channels": audio.channels, "sample_rate": audio.frame_rate}
-    final_data = generate_demo_data_js(transcript, audio_info, emotion_timeline, js_output_path, base_name)
+    final_data = generate_demo_data_js(
+        transcript,
+        audio_info,
+        emotion_timeline,
+        js_output_path,
+        base_name,
+        summary=summary,
+        qc_report=qc_report
+    )
 
-    # 6. 同时保存 JSON 格式（便于调试）
+    # 9. 同时保存 JSON 格式（便于调试）
     json_output_path = output_dir / f"{base_name}_transcript.json"
     with open(json_output_path, "w", encoding="utf-8") as f:
         json.dump(transcript, f, ensure_ascii=False, indent=2)
+
+    # 10. 保存分析结果到 MySQL
+    case_id = final_data["caseInfo"]["id"]
+    print("🗄️  [MySQL] 正在保存分析结果到数据库...")
+    save_case_record({
+        "case_id": case_id,
+        "audio_file_name": input_path.name,
+        "original_audio_url": original_audio_oss["signed_url"],
+        "wav_audio_url": wav_audio_oss["signed_url"],
+        "duration_seconds": duration,
+        "transcript": transcript,
+        "emotion_timeline": emotion_timeline,
+        "summary": summary,
+        "qc_report": qc_report
+    })
+    print(f"✅ [MySQL] 案件 {case_id} 已保存")
 
     return {
         "original": str(input_path),
         "wav": str(wav_path),
         "js_data": str(js_output_path),
         "json_transcript": str(json_output_path),
+        "original_audio_url": original_audio_oss["signed_url"],
+        "wav_audio_url": wav_audio_oss["signed_url"],
+        "summary": summary,
+        "qc_report": qc_report,
         "duration": duration,
         "sentence_count": len(transcript),
         "transcript_preview": transcript[:3] if transcript else []
@@ -528,6 +575,7 @@ def main():
 
     # 创建输出目录
     OUTPUT_DIR.mkdir(exist_ok=True)
+    init_mysql_tables()
     print(f"📁 输入目录: {AUDIO_DIR}")
     print(f"📁 输出目录: {OUTPUT_DIR}")
     print("-" * 60)

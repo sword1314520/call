@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+###示例代码
 """
 MySQL 配置示例文件
 
