@@ -17,6 +17,17 @@ LOCAL_FFMPEG_PATH = PROJECT_ROOT / "ffmpeg.exe"
 LOCAL_FFPROBE_PATH = PROJECT_ROOT / "ffprobe.exe"
 
 
+def get_local_ffmpeg_path() -> str:
+    """
+    返回本地 ffmpeg.exe 路径。
+
+    如果项目目录下不存在 ffmpeg.exe，直接抛错，避免后续只得到模糊的 WinError 2。
+    """
+    if not LOCAL_FFMPEG_PATH.exists():
+        raise FileNotFoundError(f"未找到本地 ffmpeg.exe: {LOCAL_FFMPEG_PATH}")
+    return str(LOCAL_FFMPEG_PATH)
+
+
 def configure_pydub_ffmpeg():
     """
     配置 pydub 使用本地 FFmpeg。

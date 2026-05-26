@@ -19,10 +19,12 @@
 
 import os
 import json
+import subprocess
+import wave
 from pathlib import Path
 from datetime import datetime
 from analysis_service import analyze_transcript
-from ffmpeg_utils import configure_pydub_ffmpeg
+from ffmpeg_utils import get_local_ffmpeg_path
 from mysql_storage import init_mysql_tables, save_case_record
 from oss_utils import upload_file_to_oss
 
@@ -46,40 +48,54 @@ def convert_m4a_to_wav(input_path: Path, output_path: Path):
     Returns:
         tuple: (音频对象, 时长秒数)
     """
-    from pydub import AudioSegment
-
-    # 优先使用项目目录中的 ffmpeg.exe，避免 Windows 下依赖系统 PATH
-    configure_pydub_ffmpeg()
-
     print(f"📂 [加载] 读取音频文件: {input_path.name}")
+    ffmpeg_path = get_local_ffmpeg_path()
+
+    # 这里直接调用本地 ffmpeg.exe 转码，避免 pydub 额外依赖 ffprobe 导致 WinError 2
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i", str(input_path),
+        "-ar", "16000",
+        "-ac", "1",
+        str(output_path)
+    ]
 
     try:
-        audio = AudioSegment.from_file(str(input_path))
-    except Exception as e:
-        print(f"❌ 错误: 无法加载音频文件。请确认已安装 ffmpeg。")
-        print(f"   安装命令: brew install ffmpeg")
-        print(f"   错误详情: {e}")
-        raise
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("❌ 错误: ffmpeg 转码失败")
+        print(f"   ffmpeg 路径: {ffmpeg_path}")
+        print(f"   错误详情: {e.stderr}")
+        raise RuntimeError(f"ffmpeg 转码失败: {e.stderr}") from e
 
-    # 获取音频信息
-    duration_sec = len(audio) / 1000
-    channels = audio.channels
-    sample_rate = audio.frame_rate
+    if not output_path.exists():
+        raise FileNotFoundError(f"转码后的 WAV 文件不存在: {output_path}")
+
+    # 通过标准库读取 WAV 信息，不再依赖 pydub
+    with wave.open(str(output_path), "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_rate = wav_file.getframerate()
+        frame_count = wav_file.getnframes()
+        duration_sec = frame_count / float(sample_rate) if sample_rate else 0
 
     print(f"   ├─ 时长: {duration_sec:.2f} 秒")
     print(f"   ├─ 声道数: {channels} ({'立体声' if channels == 2 else '单声道'})")
     print(f"   └─ 采样率: {sample_rate} Hz")
-
-    # 导出为 wav (16kHz, 单声道 - ASR 标准格式)
     print(f"🔄 [转码] 导出 WAV 文件: {output_path.name}")
-
-    # 转换为 16kHz 单声道，这是 ASR 模型的标准输入格式
-    audio_16k = audio.set_frame_rate(16000).set_channels(1)
-    audio_16k.export(str(output_path), format="wav")
-
     print(f"   └─ 大小: {output_path.stat().st_size / 1024 / 1024:.2f} MB (16kHz 单声道)")
 
-    return audio, duration_sec
+    audio_info = {
+        "channels": channels,
+        "sample_rate": sample_rate
+    }
+    return audio_info, duration_sec
 
 
 def run_asr_with_speaker_diarization(wav_path: Path):
@@ -485,7 +501,7 @@ def process_single_audio(input_path: Path, output_dir: Path) -> dict:
 
     # 1. 转换格式
     wav_path = output_dir / f"{base_name}.wav"
-    audio, duration = convert_m4a_to_wav(input_path, wav_path)
+    audio_info, duration = convert_m4a_to_wav(input_path, wav_path)
 
     # 2. ASR + 说话人分离
     asr_result = run_asr_with_speaker_diarization(wav_path)
@@ -518,7 +534,7 @@ def process_single_audio(input_path: Path, output_dir: Path) -> dict:
 
     # 8. 生成前端数据文件
     js_output_path = PROJECT_ROOT / f"demo_data_{base_name}.js"
-    audio_info = {"duration": duration, "channels": audio.channels, "sample_rate": audio.frame_rate}
+    audio_info = {"duration": duration, "channels": audio_info["channels"], "sample_rate": audio_info["sample_rate"]}
     final_data = generate_demo_data_js(
         transcript,
         audio_info,

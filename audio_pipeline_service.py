@@ -90,7 +90,7 @@ def process_audio_file(input_path: Path, keep_debug_files: bool = True) -> Dict:
     wav_path = OUTPUT_DIR / f"{base_name}.wav"
 
     # 1. 音频转码
-    audio, duration = convert_m4a_to_wav(input_path, wav_path)
+    audio_info, duration = convert_m4a_to_wav(input_path, wav_path)
 
     # 2. ASR 与说话人识别
     asr_result = run_asr_with_speaker_diarization(wav_path)
@@ -111,8 +111,12 @@ def process_audio_file(input_path: Path, keep_debug_files: bool = True) -> Dict:
     qc_report = analysis_result["qcReport"]
 
     # 6. 生成统一的数据结构
-    audio_info = {"duration": duration, "channels": audio.channels, "sample_rate": audio.frame_rate}
-    final_data = build_demo_data(transcript, audio_info, emotion_timeline, summary, qc_report)
+    final_audio_info = {
+        "duration": duration,
+        "channels": audio_info["channels"],
+        "sample_rate": audio_info["sample_rate"]
+    }
+    final_data = build_demo_data(transcript, final_audio_info, emotion_timeline, summary, qc_report)
     case_id = final_data["caseInfo"]["id"]
 
     # 7. 保存数据库

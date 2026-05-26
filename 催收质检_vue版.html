@@ -1,0 +1,1255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>催收场景AI助手 - Vue版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', 'Arial', 'sans-serif';
+            background-color: #f0f2f5;
+        }
+
+        .highlight {
+            background-color: #fef9c3;
+            transition: background-color 0.3s ease;
+        }
+
+        .evidence-highlight {
+            background-color: #fecaca;
+            border-left: 3px solid #ef4444;
+            padding-left: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .emotion-bar {
+            transition: all 0.2s ease-in-out;
+        }
+
+        .sidebar-item {
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+            border-left: 4px solid transparent;
+        }
+
+        .sidebar-item:hover {
+            background-color: #f3f4f6;
+        }
+
+        .sidebar-item-active {
+            background-color: #eef2ff;
+            border-left-color: #4f46e5;
+        }
+
+        .modified {
+            background-color: #fef3c7;
+            padding: 2px 4px;
+            border-radius: 4px;
+            position: relative;
+        }
+
+        .modified-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #f59e0b;
+            border-radius: 50%;
+            margin-left: 4px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+
+        .toast {
+            visibility: hidden;
+            min-width: 250px;
+            margin-left: -125px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 2px;
+            padding: 16px;
+            position: fixed;
+            z-index: 100;
+            left: 50%;
+            bottom: 30px;
+            font-size: 17px;
+            opacity: 0;
+            transition: opacity 0.3s, visibility 0.3s, bottom 0.3s;
+        }
+
+        .toast.show {
+            visibility: visible;
+            opacity: 1;
+            bottom: 50px;
+        }
+
+        .tab-button {
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-button:hover {
+            background-color: #f3f4f6;
+        }
+
+        .tab-button-active {
+            border-bottom-color: #4f46e5;
+            color: #4f46e5;
+            font-weight: 600;
+        }
+
+        .role-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+
+<body class="antialiased text-gray-800">
+    <div id="app" class="flex h-screen bg-gray-100">
+        <aside class="w-72 bg-white flex-shrink-0 border-r border-gray-200 flex flex-col">
+            <div class="h-16 flex items-center justify-center border-b border-gray-200">
+                <h1 class="text-xl font-bold text-indigo-600">催收场景AI助手 - Vue版</h1>
+            </div>
+
+            <div class="p-4 border-b border-gray-200">
+                <label class="text-sm font-medium text-gray-600 mb-2 block">当前角色</label>
+                <select v-model="state.role"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="agent">催收坐席</option>
+                    <option value="supervisor">催收主管</option>
+                    <option value="analyst">数据分析师</option>
+                    <option value="admin">系统管理员</option>
+                </select>
+            </div>
+
+            <nav class="flex-1 p-3 space-y-2 overflow-y-auto">
+                <template v-if="state.role === 'agent'">
+                    <div class="px-2 mb-2">
+                        <h2 class="text-base font-semibold text-gray-800">我的案件</h2>
+                        <p class="text-sm text-gray-500">共 {{ validCaseKeys.length }} 个案件</p>
+                    </div>
+                    <div class="mb-4 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 p-3">
+                        <p class="text-sm font-medium text-indigo-800 mb-2">上传音频并自动处理</p>
+                        <input ref="audioUploadInput" type="file" accept=".m4a,.wav,.mp3,.mp4,audio/*"
+                            class="block w-full text-sm text-gray-600 mb-2">
+                        <button @click="uploadAudioAndProcess"
+                            class="w-full px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-60"
+                            :disabled="state.isUploading">
+                            {{ state.isUploading ? '上传处理中...' : '上传并处理' }}
+                        </button>
+                        <p class="text-xs text-indigo-500 mt-2">上传后会自动完成 ASR、OSS 上传、MySQL 入库。</p>
+                    </div>
+                    <div class="space-y-1">
+                        <div v-for="key in sortedCaseKeys" :key="key" class="sidebar-item"
+                            :class="{ 'sidebar-item-active': state.activeCaseId === key }" @click="loadCase(key)">
+                            <div class="flex justify-between items-start w-full">
+                                <div>
+                                    <p class="font-semibold text-gray-800">{{ cases[key].caseInfo.customerName }}</p>
+                                    <p class="text-xs text-gray-500 mt-1">{{ cases[key].caseInfo.id }}</p>
+                                    <p class="text-sm text-gray-600 mt-1">
+                                        时长: {{ Math.round(cases[key].caseInfo.duration || 0) }}秒
+                                    </p>
+                                </div>
+                                <span v-if="isBackendCase(key)"
+                                    class="text-xs font-medium bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">🎙️
+                                    AI识别</span>
+                                <span v-else
+                                    class="text-xs font-medium bg-green-100 text-green-800 px-2 py-0.5 rounded-full">模拟</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template v-else-if="state.role === 'supervisor'">
+                    <div class="px-2 mb-2">
+                        <h2 class="text-base font-semibold text-gray-800">团队管理</h2>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.supervisorView === 'dashboard' }"
+                            @click="state.supervisorView = 'dashboard'">数据看板</div>
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.supervisorView === 'appeals' }"
+                            @click="state.supervisorView = 'appeals'">
+                            申诉复核
+                            <span class="ml-2 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                                {{ pendingAppeals.length }}
+                            </span>
+                        </div>
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.supervisorView === 'team-cases' }"
+                            @click="state.supervisorView = 'team-cases'">团队案件</div>
+                    </div>
+                </template>
+
+                <template v-else-if="state.role === 'analyst'">
+                    <div class="px-2 mb-2">
+                        <h2 class="text-base font-semibold text-gray-800">分析视图</h2>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.analystView === 'overview' }"
+                            @click="state.analystView = 'overview'">总体分析</div>
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.analystView === 'emotion' }"
+                            @click="state.analystView = 'emotion'">情绪分析</div>
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.analystView === 'export' }"
+                            @click="state.analystView = 'export'">数据导出</div>
+                    </div>
+                </template>
+
+                <template v-else>
+                    <div class="px-2 mb-2">
+                        <h2 class="text-base font-semibold text-gray-800">系统管理</h2>
+                    </div>
+                    <div class="space-y-1">
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.adminView === 'tags' }"
+                            @click="state.adminView = 'tags'">标签知识库</div>
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.adminView === 'rules' }"
+                            @click="state.adminView = 'rules'">质检规则</div>
+                    </div>
+                </template>
+            </nav>
+
+            <div class="p-4 border-t border-gray-200">
+                <div class="p-4 bg-indigo-50 rounded-lg text-center">
+                    <p class="text-sm font-medium text-indigo-800">用户: <span>{{ currentUserName }}</span></p>
+                    <p class="text-xs text-indigo-500 mt-1">演示模式</p>
+                </div>
+            </div>
+        </aside>
+
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <template v-if="state.role === 'agent'">
+                <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+                    <div class="flex items-center space-x-3">
+                        <h2 class="text-lg font-semibold text-gray-900">案件详情: <span>{{ activeCase?.caseInfo?.id || '' }}</span>
+                        </h2>
+                        <span class="bg-gray-200 text-gray-600 text-xs font-medium px-2.5 py-0.5 rounded-full">事后分析模式
+                            (POC)</span>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button @click="openSuggestionModal"
+                            class="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-100 rounded-lg shadow-sm hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition flex items-center">
+                            生成沟通建议
+                        </button>
+                        <button @click="showToast('案件数据已同步。API接口可无缝对接生产系统。')"
+                            class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition">
+                            同步至CRM
+                        </button>
+                    </div>
+                </header>
+
+                <div class="flex-1 p-6 overflow-auto grid grid-cols-1 lg:grid-cols-2 gap-6" v-if="activeCase">
+                    <div class="flex flex-col space-y-6">
+                        <div class="bg-white rounded-lg shadow-md">
+                            <div class="p-6">
+                                <div class="flex justify-between items-center mb-4">
+                                    <h3 class="text-lg font-semibold">智能小结</h3>
+                                    <div class="flex items-center space-x-2">
+                                        <button @click="runAIAnalysis"
+                                            class="text-sm font-medium text-white bg-purple-600 px-3 py-1 rounded-md hover:bg-purple-700 flex items-center disabled:opacity-60"
+                                            :disabled="state.analyzing">
+                                            {{ state.analyzing ? '分析中...' : 'AI 分析' }}
+                                        </button>
+                                        <button v-if="modificationCount > 0" @click="showModificationModal = true"
+                                            class="text-sm font-medium text-gray-600 hover:text-gray-800">
+                                            查看修改记录
+                                        </button>
+                                        <button v-if="!state.isEditingSummary" @click="state.isEditingSummary = true"
+                                            class="text-sm font-medium text-indigo-600 hover:text-indigo-800">编辑</button>
+                                        <button v-else @click="saveSummary"
+                                            class="text-sm font-medium text-white bg-indigo-600 px-3 py-1 rounded-md hover:bg-indigo-700">保存</button>
+                                    </div>
+                                </div>
+                                <div class="space-y-4">
+                                    <div v-for="(items, category) in editableSummary" :key="category">
+                                        <h4 class="text-sm font-semibold text-gray-500 mb-2">{{ category }}</h4>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                                            <div v-for="(value, key) in items" :key="key" class="flex">
+                                                <span class="text-gray-500 w-24 flex-shrink-0">{{ key }}</span>
+                                                <template v-if="state.isEditingSummary">
+                                                    <select v-if="tagLibrary[key]"
+                                                        v-model="editableSummary[category][key]"
+                                                        class="w-full border-b-2 border-indigo-200 focus:outline-none focus:border-indigo-500 transition bg-white">
+                                                        <option v-for="opt in tagLibrary[key]" :key="opt" :value="opt">{{ opt }}
+                                                        </option>
+                                                    </select>
+                                                    <input v-else v-model="editableSummary[category][key]" type="text"
+                                                        class="w-full border-b-2 border-indigo-200 focus:outline-none focus:border-indigo-500 transition">
+                                                </template>
+                                                <template v-else>
+                                                    <span class="text-gray-800 font-medium"
+                                                        :class="{ modified: isModified(category, key) }">
+                                                        {{ value }}
+                                                        <span v-if="isModified(category, key)"
+                                                            class="modified-indicator"></span>
+                                                    </span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-4 pt-4 border-t border-gray-200">
+                                    <button @click="showToast('小结已确认并提交,记录已保存')"
+                                        class="w-full px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
+                                        确认无误并提交
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-lg font-semibold">智能质检报告</h3>
+                                <div class="text-right">
+                                    <p class="text-2xl font-bold" :class="qcScoreClass(activeCase.qcReport.score)">{{
+                                        activeCase.qcReport.score }}</p>
+                                    <p class="text-sm text-gray-500">综合得分</p>
+                                </div>
+                            </div>
+                            <div class="space-y-3">
+                                <div v-if="activeCase.qcReport.violations.length === 0" class="text-center py-4 text-gray-500">
+                                    <p class="mt-2 text-sm">本次通话质检合规</p>
+                                </div>
+                                <div v-for="v in activeCase.qcReport.violations" :key="v.id"
+                                    class="border border-gray-200 rounded-lg p-3">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <div class="flex-1">
+                                            <p class="font-semibold">{{ v.ruleName }}</p>
+                                            <p class="text-xs text-gray-500 mt-1">{{ v.evidence }}</p>
+                                        </div>
+                                        <div class="text-right flex-shrink-0 ml-4">
+                                            <p class="font-bold text-red-500">-{{ v.penalty }}分</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex space-x-2">
+                                        <button @click="highlightEvidence(v.start, v.end)"
+                                            class="text-xs text-indigo-600 hover:underline">查看证据</button>
+                                        <button @click="openAppealModal(v)"
+                                            class="text-xs text-yellow-600 hover:underline">申诉</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
+                        <div class="p-6 border-b border-gray-200">
+                            <div class="flex items-center space-x-4 mb-4">
+                                <button @click="togglePlayPause"
+                                    class="w-10 h-10 flex items-center justify-center rounded-full bg-indigo-600 text-white hover:bg-indigo-700 focus:outline-none">
+                                    <span v-if="!state.isPlaying">▶</span>
+                                    <span v-else>❚❚</span>
+                                </button>
+                                <div class="flex-1 flex items-center space-x-2">
+                                    <span class="text-sm font-mono text-gray-600">{{ formatTime(state.currentTime) }}</span>
+                                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                        <div class="bg-indigo-600 h-2.5 rounded-full"
+                                            :style="{ width: `${progressPercent}%` }"></div>
+                                    </div>
+                                    <span class="text-sm font-mono text-gray-600">{{ formatTime(state.duration) }}</span>
+                                </div>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-gray-600 mb-2">情绪时间轴</p>
+                                <div class="space-y-2">
+                                    <div class="flex items-center">
+                                        <span class="w-16 text-xs text-gray-500">坐席</span>
+                                        <div class="flex-1 h-4 bg-gray-200 rounded-md overflow-hidden flex">
+                                            <div v-for="(segment, i) in activeCase.emotionTimeline.agent" :key="`a-${i}`"
+                                                class="emotion-bar" :class="emotionColor(segment.emotion)"
+                                                :style="{ width: `${segment.duration * 100}%` }"></div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <span class="w-16 text-xs text-gray-500">客户</span>
+                                        <div class="flex-1 h-4 bg-gray-200 rounded-md overflow-hidden flex">
+                                            <div v-for="(segment, i) in activeCase.emotionTimeline.customer" :key="`c-${i}`"
+                                                class="emotion-bar" :class="emotionColor(segment.emotion)"
+                                                :style="{ width: `${segment.duration * 100}%` }"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex-1 p-6 overflow-y-auto">
+                            <div v-for="(line, index) in activeCase.transcript" :key="index"
+                                class="p-3 rounded-lg flex items-start space-x-3 cursor-pointer hover:bg-gray-50"
+                                :class="transcriptLineClass(line, index)" @click="jumpToTime(line.start)">
+                                <div class="flex-shrink-0 w-16 text-right">
+                                    <span class="font-mono text-xs text-gray-500">{{ formatTime(line.start) }}</span>
+                                </div>
+                                <div class="flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center font-bold text-sm"
+                                    :class="line.speaker === '坐席' ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-800'">
+                                    {{ line.speaker.charAt(0) }}
+                                </div>
+                                <div class="flex-1">
+                                    <p class="font-medium text-sm">{{ line.speaker }}</p>
+                                    <p class="text-gray-700">{{ line.text }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <template v-else-if="state.role === 'supervisor'">
+                <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+                    <h2 class="text-lg font-semibold text-gray-900">团队管理</h2>
+                    <span class="role-badge bg-purple-100 text-purple-800">催收主管</span>
+                </header>
+                <div class="flex-1 p-6 overflow-auto" v-if="state.supervisorView === 'dashboard'">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <p class="text-sm text-gray-500">总案件数</p>
+                            <p class="text-3xl font-bold mt-2">{{ validCaseKeys.length }}</p>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <p class="text-sm text-gray-500">平均得分</p>
+                            <p class="text-3xl font-bold mt-2">{{ averageScore }}</p>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <p class="text-sm text-gray-500">待复核申诉</p>
+                            <p class="text-3xl font-bold mt-2">{{ pendingAppeals.length }}</p>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <p class="text-sm text-gray-500">高风险案件</p>
+                            <p class="text-3xl font-bold mt-2">{{ highRiskCases }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-1 p-6 overflow-auto" v-else-if="state.supervisorView === 'appeals'">
+                    <div class="bg-white rounded-lg shadow-md p-6 space-y-4">
+                        <div v-if="appeals.length === 0" class="text-gray-500">暂无申诉记录</div>
+                        <div v-for="appeal in appeals" :key="appeal.id" class="border border-gray-200 rounded-lg p-4">
+                            <div class="flex justify-between">
+                                <div>
+                                    <p class="font-semibold">{{ appeal.ruleName }}</p>
+                                    <p class="text-sm text-gray-500 mt-1">{{ appeal.caseId }} / {{ appeal.agentName }}</p>
+                                </div>
+                                <span class="text-xs px-2 py-1 rounded-full"
+                                    :class="appeal.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : appeal.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                                    {{ appeal.status }}
+                                </span>
+                            </div>
+                            <p class="text-sm mt-3">证据：{{ appeal.evidence }}</p>
+                            <p class="text-sm mt-2">申诉理由：{{ appeal.reason }}</p>
+                            <div v-if="appeal.status === 'pending'" class="flex gap-2 mt-4">
+                                <button @click="reviewAppeal(appeal, 'approved')"
+                                    class="px-3 py-2 bg-green-600 text-white rounded-md">通过</button>
+                                <button @click="reviewAppeal(appeal, 'rejected')"
+                                    class="px-3 py-2 bg-red-600 text-white rounded-md">驳回</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex-1 p-6 overflow-auto" v-else>
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4">团队案件</h3>
+                        <div class="space-y-3">
+                            <div v-for="key in sortedCaseKeys" :key="`team-${key}`" class="border rounded-lg p-4">
+                                <div class="flex justify-between">
+                                    <div>
+                                        <p class="font-semibold">{{ cases[key].caseInfo.customerName }}</p>
+                                        <p class="text-sm text-gray-500 mt-1">{{ cases[key].caseInfo.id }}</p>
+                                    </div>
+                                    <p class="font-bold" :class="qcScoreClass(cases[key].qcReport.score)">
+                                        {{ cases[key].qcReport.score }}分
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <template v-else-if="state.role === 'analyst'">
+                <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+                    <h2 class="text-lg font-semibold text-gray-900">数据分析师视图</h2>
+                    <span class="role-badge bg-blue-100 text-blue-800">数据分析师</span>
+                </header>
+                <div class="flex-1 p-6 overflow-auto">
+                    <div v-if="state.analystView === 'overview'" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <h3 class="text-lg font-semibold mb-4">风险等级分布</h3>
+                            <div class="space-y-2 text-sm">
+                                <div v-for="(count, level) in riskDistribution" :key="level" class="flex justify-between">
+                                    <span>{{ level }}</span><span>{{ count }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <h3 class="text-lg font-semibold mb-4">违规规则统计</h3>
+                            <div class="space-y-2 text-sm">
+                                <div v-for="(count, rule) in violationDistribution" :key="rule"
+                                    class="flex justify-between">
+                                    <span>{{ rule }}</span><span>{{ count }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else-if="state.analystView === 'emotion'" class="bg-white rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4">情绪分析</h3>
+                        <div class="space-y-4">
+                            <div v-for="key in sortedCaseKeys" :key="`emotion-${key}`" class="border rounded-lg p-4">
+                                <p class="font-semibold mb-2">{{ cases[key].caseInfo.customerName }}</p>
+                                <div class="text-sm text-gray-500">客户情绪片段数:
+                                    {{ cases[key].emotionTimeline.customer.length }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="bg-white rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4">数据导出</h3>
+                        <div class="flex gap-3">
+                            <button @click="showToast('正在导出CSV格式数据...')"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-md">导出 CSV</button>
+                            <button @click="showToast('正在导出JSON格式数据...')"
+                                class="px-4 py-2 bg-indigo-600 text-white rounded-md">导出 JSON</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <template v-else>
+                <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+                    <h2 class="text-lg font-semibold text-gray-900">系统管理员视图</h2>
+                    <span class="role-badge bg-gray-200 text-gray-800">系统管理员</span>
+                </header>
+                <div class="flex-1 p-6 overflow-auto">
+                    <div v-if="state.adminView === 'tags'" class="bg-white rounded-lg shadow-md p-6">
+                        <h3 class="text-lg font-semibold mb-4">标签知识库</h3>
+                        <div class="space-y-4">
+                            <div v-for="(options, tagKey) in tagLibrary" :key="tagKey" class="border rounded-lg p-4">
+                                <div class="flex justify-between items-center mb-3">
+                                    <p class="font-semibold">{{ tagKey }}</p>
+                                    <button @click="addTagOption(tagKey)"
+                                        class="text-sm px-3 py-1 bg-indigo-600 text-white rounded-md">新增选项</button>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span v-for="(opt, index) in options" :key="`${tagKey}-${opt}`"
+                                        class="px-3 py-1 bg-gray-100 rounded-full text-sm">
+                                        {{ opt }}
+                                        <button @click="removeTagOption(tagKey, index)" class="ml-2 text-red-500">×</button>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="bg-white rounded-lg shadow-md p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-lg font-semibold">质检规则</h3>
+                            <button @click="addNewRule" class="px-4 py-2 bg-indigo-600 text-white rounded-md">新增规则</button>
+                        </div>
+                        <div class="space-y-3">
+                            <div v-for="(rule, index) in qcRules" :key="rule.id" class="border rounded-lg p-4">
+                                <div class="flex justify-between">
+                                    <div>
+                                        <p class="font-semibold">{{ rule.id }} - {{ rule.name }}</p>
+                                        <p class="text-sm text-gray-500 mt-1">{{ rule.description }}</p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-sm text-red-500">扣{{ rule.penalty }}分</span>
+                                        <button @click="editRule(index)"
+                                            class="px-3 py-1 bg-yellow-500 text-white rounded-md text-sm">编辑</button>
+                                        <button @click="deleteRule(index)"
+                                            class="px-3 py-1 bg-red-600 text-white rounded-md text-sm">删除</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </main>
+
+        <div v-if="showAppealModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+                <h3 class="text-lg font-medium text-gray-900 mt-2 text-center">违规申诉</h3>
+                <div class="mt-4 px-7 py-3">
+                    <p class="text-sm text-gray-600 mb-2">违规项: <span class="font-semibold">{{ currentAppealViolation?.ruleName
+                    }}</span></p>
+                    <p class="text-sm text-gray-600 mb-4">扣分: <span class="font-semibold text-red-500">-{{
+                        currentAppealViolation?.penalty }}分</span></p>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">申诉理由</label>
+                    <textarea v-model="appealReason" rows="4"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="请说明您的申诉理由..."></textarea>
+                </div>
+                <div class="flex space-x-3 px-4 py-3">
+                    <button @click="closeAppealModal"
+                        class="flex-1 px-4 py-2 bg-gray-200 text-gray-800 text-base font-medium rounded-md shadow-sm hover:bg-gray-300">
+                        取消
+                    </button>
+                    <button @click="submitAppeal"
+                        class="flex-1 px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-600">
+                        提交申诉
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showSuggestionModal"
+            class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-md bg-white">
+                <div class="mt-3 text-center">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 mt-4">AI 沟通建议</h3>
+                    <div class="mt-4 px-7 py-3">
+                        <div class="text-sm text-gray-600 text-left leading-relaxed" v-html="suggestionHtml"></div>
+                    </div>
+                    <div class="items-center px-4 py-3">
+                        <button @click="showSuggestionModal = false"
+                            class="px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-indigo-600">
+                            关闭
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showModificationModal"
+            class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-3xl shadow-lg rounded-md bg-white">
+                <div class="mt-3">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">修改痕迹记录</h3>
+                    <div class="space-y-3 max-h-96 overflow-y-auto">
+                        <div v-if="currentModifications.length === 0" class="text-center text-gray-500 py-4">暂无修改记录</div>
+                        <div v-for="(mod, index) in currentModifications" :key="index"
+                            class="border border-gray-200 rounded-lg p-3">
+                            <div class="flex justify-between items-start mb-2">
+                                <p class="font-medium text-gray-900">{{ mod.field }}</p>
+                                <span class="text-xs text-gray-500">{{ mod.timestamp }}</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-sm">
+                                <div>
+                                    <p class="text-gray-500 text-xs">AI原始结果</p>
+                                    <p class="text-gray-700">{{ mod.originalValue }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-500 text-xs">人工修正结果</p>
+                                    <p class="text-indigo-600 font-medium">{{ mod.newValue }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <button @click="showModificationModal = false"
+                            class="w-full px-4 py-2 bg-indigo-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-indigo-600">
+                            关闭
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="toast" :class="{ show: toast.show }">{{ toast.message }}</div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    apiBaseUrl: 'http://localhost:5001',
+                    cases: {
+                        perfect: {
+                            caseInfo: { id: 'CASE-20250116-001', customerName: '张三', debtAmount: '¥2,000', date: '2025-10-15 10:25:11', agentName: '李婷', duration: 55 },
+                            summary: {
+                                "联系结果类标签": { "通话状态": "可联", "承诺还款": "是", "还款金额": "2000元", "还款日期": "2025-10-17" },
+                                "客户画像类标签": { "还款意愿": "高", "经济状况": "正常", "协商态度": "合作", "投诉倾向": "无" },
+                                "行动项标签": { "下次联系时间": "无需", "待办事项": "跟进客户10月17日还款情况", "风险等级": "低" }
+                            },
+                            qcReport: { score: 100, violations: [] },
+                            emotionTimeline: { agent: [{ emotion: 'neutral', duration: 1 }], customer: [{ emotion: 'neutral', duration: 1 }] },
+                            transcript: [
+                                { speaker: '坐席', text: '您好,这里是XX银行,请问是张三先生本人吗?为保证通话质量,本次通话将被录音。', start: 0, end: 6 },
+                                { speaker: '客户', text: '是我,什么事?', start: 7, end: 9 },
+                                { speaker: '坐席', text: '张先生您好,我们注意到您尾号8848的信用卡账单有一笔2000元的逾期款项,请问您目前是遇到什么困难了吗?', start: 10, end: 18 },
+                                { speaker: '客户', text: '哦,这个啊,我给忘了,最近太忙了。', start: 19, end: 22 },
+                                { speaker: '坐席', text: '没关系,我们理解。那您看今天方便处理吗?及时还款可以避免产生更多的违约金。', start: 23, end: 29 },
+                                { speaker: '客户', text: '今天不行,工资还没发。后天,后天我肯定还上。', start: 30, end: 35 },
+                                { speaker: '坐席', text: '好的,张先生。那我们跟您确认一下,您将在后天,也就是10月17日,偿还2000元是吗?', start: 36, end: 44 },
+                                { speaker: '客户', text: '对,没错,17号还2000。', start: 45, end: 48 },
+                                { speaker: '坐席', text: '好的,我们已经为您备注。请您务必按时处理。感谢您的配合,再见。', start: 49, end: 55 }
+                            ]
+                        },
+                        violation: {
+                            caseInfo: { id: 'CASE-20250116-002', customerName: '李四', debtAmount: '¥5,000', date: '2025-10-16 11:40:02', agentName: '王刚', duration: 52 },
+                            summary: {
+                                "联系结果类标签": { "通话状态": "可联", "承诺还款": "否", "拒绝还款": "是" },
+                                "客户画像类标签": { "还款意愿": "低", "经济状况": "未知", "协商态度": "对抗", "投诉倾向": "高" },
+                                "行动项标签": { "下次联系时间": "2025-10-17", "待办事项": "客户情绪激动,升级处理", "风险等级": "高" }
+                            },
+                            qcReport: {
+                                score: 60,
+                                violations: [
+                                    { id: 'v1', ruleId: 'R002', ruleName: '禁止威胁恐吓', penalty: 30, evidence: '如果你再不还钱,法院会把你拉入黑名单,到时候你就坐牢吧!', start: 25, end: 32, status: 'pending' },
+                                    { id: 'v2', ruleId: 'R005', ruleName: '沟通礼貌与情绪控制', penalty: 10, evidence: '跟你说不通,就这样。', start: 45, end: 48, status: 'pending' }
+                                ]
+                            },
+                            emotionTimeline: {
+                                agent: [{ emotion: 'neutral', duration: 0.4 }, { emotion: 'negative', duration: 0.6 }],
+                                customer: [{ emotion: 'neutral', duration: 0.3 }, { emotion: 'negative', duration: 0.3 }, { emotion: 'angry', duration: 0.4 }]
+                            },
+                            transcript: [
+                                { speaker: '坐席', text: '喂,李四女士吗?你的欠款到底还不还?', start: 0, end: 5 },
+                                { speaker: '客户', text: '我最近手头紧,能不能宽限几天?', start: 6, end: 10 },
+                                { speaker: '坐席', text: '不行,已经逾期很久了,今天必须处理。', start: 11, end: 16 },
+                                { speaker: '客户', text: '我真的没钱,你逼我也没用啊。', start: 17, end: 21 },
+                                { speaker: '坐席', text: '我告诉你,如果你再不还钱,法院会把你拉入黑名单,到时候你就坐牢吧!', start: 25, end: 32 },
+                                { speaker: '客户', text: '你...你怎么能这么说话?这是威胁!我要投诉你!', start: 33, end: 39 },
+                                { speaker: '坐席', text: '投诉?随便你。跟你说不通,就这样。', start: 45, end: 48 },
+                                { speaker: '客户', text: '嘟...嘟...嘟...', start: 50, end: 52 }
+                            ]
+                        },
+                        defect: {
+                            caseInfo: { id: 'CASE-20250116-003', customerName: '王五', debtAmount: '¥3,500', date: '2025-10-16 14:12:56', agentName: '赵磊', duration: 36 },
+                            summary: {
+                                "联系结果类标签": { "通话状态": "可联", "承诺还款": "是 (模糊)", "还款金额": "1500元", "还款日期": "本周内" },
+                                "客户画像类标签": { "还款意愿": "中", "经济状况": "紧张", "协商态度": "犹豫", "投诉倾向": "无" },
+                                "行动项标签": { "下次联系时间": "2025-10-18", "待办事项": "确认客户具体还款日期", "风险等级": "中" }
+                            },
+                            qcReport: {
+                                score: 80,
+                                violations: [
+                                    { id: 'v3', ruleId: 'R001', ruleName: '身份确认', penalty: 10, evidence: '(整个开场均未进行身份确认)', start: 0, end: 5, status: 'pending' },
+                                    { id: 'v4', ruleId: 'R007', ruleName: '录音告知', penalty: 10, evidence: '(整个开场均未进行录音告知)', start: 0, end: 5, status: 'pending' }
+                                ]
+                            },
+                            emotionTimeline: { agent: [{ emotion: 'neutral', duration: 1 }], customer: [{ emotion: 'neutral', duration: 0.6 }, { emotion: 'negative', duration: 0.4 }] },
+                            transcript: [
+                                { speaker: '坐席', text: '喂,你好。', start: 0, end: 2 },
+                                { speaker: '客户', text: '你好,哪位?', start: 3, end: 5 },
+                                { speaker: '坐席', text: '我们是XX银行的,关于你信用卡的事。', start: 6, end: 10 },
+                                { speaker: '客户', text: '哦,是催款的吧。', start: 11, end: 14 },
+                                { speaker: '坐席', text: '你有一笔1500元的账单逾期了,打算什么时候还?', start: 15, end: 20 },
+                                { speaker: '客户', text: '唉,知道了,这周吧,这周肯定还。', start: 21, end: 26 },
+                                { speaker: '坐席', text: '好,那尽快处理。', start: 27, end: 29 },
+                                { speaker: '客户', text: '嗯。', start: 30, end: 31 },
+                                { speaker: '坐席', text: '挂了。', start: 35, end: 36 }
+                            ]
+                        }
+                    },
+                    backendCaseKeys: [],
+                    tagLibrary: {
+                        "通话状态": ["可联", "无人接听", "拒接", "空号", "停机"],
+                        "承诺还款": ["是", "否", "是 (模糊)"],
+                        "还款意愿": ["高", "中", "低", "未知"],
+                        "经济状况": ["正常", "紧张", "困难", "未知"],
+                        "协商态度": ["合作", "犹豫", "对抗", "拒绝沟通"],
+                        "投诉倾向": ["无", "低", "中", "高"],
+                        "风险等级": ["低", "中", "高", "极高"]
+                    },
+                    qcRules: [
+                        { id: 'R001', name: '身份确认', description: '通话开始时必须确认客户身份', penalty: 10, keywords: [] },
+                        { id: 'R002', name: '禁止威胁恐吓', description: '严禁使用威胁、恐吓性语言', penalty: 30, keywords: ['坐牢', '黑名单', '法院', '抓人'] },
+                        { id: 'R005', name: '沟通礼貌与情绪控制', description: '保持礼貌用语,控制情绪', penalty: 10, keywords: ['随便你', '就这样'] },
+                        { id: 'R007', name: '录音告知', description: '通话开始时必须告知录音', penalty: 10, keywords: [] }
+                    ],
+                    appeals: [],
+                    modificationHistory: {},
+                    state: {
+                        role: 'agent',
+                        activeCaseId: 'perfect',
+                        isPlaying: false,
+                        currentTime: 0,
+                        duration: 0,
+                        intervalId: null,
+                        isEditingSummary: false,
+                        analyzing: false,
+                        isUploading: false,
+                        supervisorView: 'dashboard',
+                        analystView: 'overview',
+                        adminView: 'tags'
+                    },
+                    editableSummary: {},
+                    originalSummarySnapshot: {},
+                    toast: { show: false, message: '' },
+                    showAppealModal: false,
+                    showSuggestionModal: false,
+                    showModificationModal: false,
+                    currentAppealViolation: null,
+                    appealReason: '',
+                    highlightedRange: null,
+                    suggestionHtml: '',
+                    audioElement: null,
+                    currentUserName: '演示用户'
+                };
+            },
+            computed: {
+                validCaseKeys() {
+                    return Object.keys(this.cases).filter(key => this.cases[key] !== null);
+                },
+                sortedCaseKeys() {
+                    return [...this.validCaseKeys].sort((a, b) => {
+                        const aIsBackend = this.isBackendCase(a);
+                        const bIsBackend = this.isBackendCase(b);
+                        if (aIsBackend && !bIsBackend) return -1;
+                        if (!aIsBackend && bIsBackend) return 1;
+                        return 0;
+                    });
+                },
+                activeCase() {
+                    return this.cases[this.state.activeCaseId] || null;
+                },
+                pendingAppeals() {
+                    return this.appeals.filter(a => a.status === 'pending');
+                },
+                averageScore() {
+                    const scores = this.validCaseKeys.map(key => this.cases[key].qcReport.score || 0);
+                    if (!scores.length) return 0;
+                    return Math.round(scores.reduce((sum, item) => sum + item, 0) / scores.length);
+                },
+                highRiskCases() {
+                    return this.validCaseKeys.filter(key => {
+                        const risk = this.cases[key].summary?.["行动项标签"]?.["风险等级"];
+                        return risk === '高' || risk === '极高';
+                    }).length;
+                },
+                riskDistribution() {
+                    const result = {};
+                    this.validCaseKeys.forEach(key => {
+                        const risk = this.cases[key].summary?.["行动项标签"]?.["风险等级"] || '未知';
+                        result[risk] = (result[risk] || 0) + 1;
+                    });
+                    return result;
+                },
+                violationDistribution() {
+                    const result = {};
+                    this.validCaseKeys.forEach(key => {
+                        (this.cases[key].qcReport.violations || []).forEach(v => {
+                            result[v.ruleName] = (result[v.ruleName] || 0) + 1;
+                        });
+                    });
+                    return result;
+                },
+                progressPercent() {
+                    if (!this.state.duration) return 0;
+                    return Math.min(100, (this.state.currentTime / this.state.duration) * 100);
+                },
+                modificationCount() {
+                    return (this.modificationHistory[this.state.activeCaseId] || []).length;
+                },
+                currentModifications() {
+                    return this.modificationHistory[this.state.activeCaseId] || [];
+                }
+            },
+            methods: {
+                formatTime(seconds) {
+                    const minutes = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+                },
+                showToast(message) {
+                    this.toast.message = message;
+                    this.toast.show = true;
+                    clearTimeout(this._toastTimer);
+                    this._toastTimer = setTimeout(() => {
+                        this.toast.show = false;
+                    }, 3000);
+                },
+                isBackendCase(caseKey) {
+                    return this.backendCaseKeys.includes(caseKey);
+                },
+                normalizeBackendCase(caseData) {
+                    const safeCase = caseData || {};
+                    const qcReport = safeCase.qcReport || { score: 0, violations: [] };
+                    qcReport.violations = (qcReport.violations || []).map((item, index) => ({
+                        id: item.id || `db_v${index}`,
+                        status: item.status || 'pending',
+                        ...item
+                    }));
+
+                    return {
+                        ...safeCase,
+                        sourceType: 'backend',
+                        caseInfo: {
+                            customerName: 'AI识别客户',
+                            debtAmount: '¥--',
+                            agentName: 'AI识别坐席',
+                            duration: 0,
+                            ...safeCase.caseInfo
+                        },
+                        summary: safeCase.summary || {},
+                        qcReport,
+                        emotionTimeline: safeCase.emotionTimeline || {
+                            agent: [{ emotion: 'neutral', duration: 1 }],
+                            customer: [{ emotion: 'neutral', duration: 1 }]
+                        },
+                        transcript: safeCase.transcript || [],
+                        storage: safeCase.storage || {}
+                    };
+                },
+                async fetchBackendCases() {
+                    try {
+                        const response = await fetch(`${this.apiBaseUrl}/api/cases?limit=100`);
+                        if (!response.ok) throw new Error(`查询案件列表失败: ${response.status}`);
+                        const result = await response.json();
+                        if (!result.success) throw new Error(result.error || '后端返回失败');
+                        this.backendCaseKeys = [];
+                        (result.cases || []).forEach(caseItem => {
+                            const caseKey = caseItem.caseInfo?.id;
+                            if (!caseKey) return;
+                            this.cases[caseKey] = this.normalizeBackendCase(caseItem);
+                            this.backendCaseKeys.push(caseKey);
+                        });
+                    } catch (error) {
+                        this.showToast(`⚠️ 后端案件加载失败，已回退示例数据: ${error.message}`);
+                    }
+                },
+                async fetchCaseDetail(caseId) {
+                    try {
+                        const response = await fetch(`${this.apiBaseUrl}/api/cases/${encodeURIComponent(caseId)}`);
+                        if (!response.ok) throw new Error(`查询案件详情失败: ${response.status}`);
+                        const result = await response.json();
+                        if (!result.success || !result.case) throw new Error(result.error || '案件详情为空');
+                        this.cases[caseId] = this.normalizeBackendCase(result.case);
+                    } catch (error) {
+                        this.showToast(`⚠️ 案件详情刷新失败: ${error.message}`);
+                    }
+                },
+                cloneSummary(summary) {
+                    return JSON.parse(JSON.stringify(summary || {}));
+                },
+                async loadCase(caseId) {
+                    this.state.activeCaseId = caseId;
+                    if (this.isBackendCase(caseId)) {
+                        await this.fetchCaseDetail(caseId);
+                    }
+
+                    if (this.state.isPlaying) {
+                        this.togglePlayPause();
+                    }
+                    this.state.currentTime = 0;
+                    this.highlightedRange = null;
+
+                    const data = this.activeCase;
+                    if (!data) return;
+
+                    if (this.audioElement) {
+                        this.audioElement.pause();
+                        this.audioElement = null;
+                    }
+
+                    const audioPath = data?.storage?.wavAudioUrl || null;
+                    if (audioPath) {
+                        this.audioElement = new Audio(audioPath);
+                        this.audioElement.addEventListener('ended', () => {
+                            if (this.state.isPlaying) this.togglePlayPause();
+                        });
+                        this.audioElement.addEventListener('error', () => {
+                            this.showToast('⚠️ 音频文件加载失败，请检查 OSS 配置或签名地址');
+                        });
+                    }
+
+                    this.state.duration = data.caseInfo.duration || 0;
+                    this.editableSummary = this.cloneSummary(data.summary);
+                    this.originalSummarySnapshot = this.cloneSummary(data.summary);
+                    this.state.isEditingSummary = false;
+
+                    if (!this.modificationHistory[caseId]) {
+                        this.modificationHistory[caseId] = [];
+                    }
+                },
+                qcScoreClass(score) {
+                    if (score < 80) return 'text-red-500';
+                    if (score < 100) return 'text-yellow-500';
+                    return 'text-green-500';
+                },
+                emotionColor(emotion) {
+                    if (emotion === 'negative') return 'bg-yellow-400';
+                    if (emotion === 'angry') return 'bg-red-500';
+                    return 'bg-green-400';
+                },
+                isModified(category, key) {
+                    const current = this.editableSummary?.[category]?.[key];
+                    const original = this.originalSummarySnapshot?.[category]?.[key];
+                    return current !== original;
+                },
+                saveSummary() {
+                    const modifications = [];
+                    Object.entries(this.editableSummary).forEach(([category, items]) => {
+                        Object.entries(items).forEach(([key, value]) => {
+                            const originalValue = this.activeCase.summary?.[category]?.[key];
+                            if (originalValue !== value) {
+                                modifications.push({
+                                    field: key,
+                                    originalValue,
+                                    newValue: value,
+                                    timestamp: new Date().toLocaleString('zh-CN')
+                                });
+                            }
+                        });
+                    });
+
+                    this.activeCase.summary = this.cloneSummary(this.editableSummary);
+                    if (modifications.length > 0) {
+                        this.modificationHistory[this.state.activeCaseId].push(...modifications);
+                        this.showToast(`已保存 ${modifications.length} 处修改`);
+                    } else {
+                        this.showToast('未检测到修改');
+                    }
+                    this.state.isEditingSummary = false;
+                },
+                highlightEvidence(start, end) {
+                    this.highlightedRange = { start, end };
+                },
+                transcriptLineClass(line) {
+                    const classes = [];
+                    if (this.highlightedRange) {
+                        if ((line.start >= this.highlightedRange.start && line.end <= this.highlightedRange.end) ||
+                            (line.start === this.highlightedRange.start && line.end <= this.highlightedRange.end)) {
+                            classes.push('evidence-highlight');
+                        }
+                    }
+                    if (this.state.currentTime >= line.start && this.state.currentTime < line.end) {
+                        classes.push('highlight');
+                    }
+                    return classes;
+                },
+                jumpToTime(time) {
+                    this.state.currentTime = time;
+                    if (this.audioElement) {
+                        this.audioElement.currentTime = time;
+                    }
+                },
+                tick() {
+                    if (!this.state.isPlaying) return;
+                    if (this.audioElement && !this.audioElement.paused) {
+                        this.state.currentTime = this.audioElement.currentTime;
+                    } else {
+                        this.state.currentTime += 0.1;
+                    }
+                    if (this.state.currentTime >= this.state.duration) {
+                        this.state.currentTime = this.state.duration;
+                        this.togglePlayPause();
+                    }
+                },
+                togglePlayPause() {
+                    this.state.isPlaying = !this.state.isPlaying;
+                    if (this.state.isPlaying) {
+                        if (this.state.currentTime >= this.state.duration) {
+                            this.state.currentTime = 0;
+                        }
+                        if (this.audioElement) {
+                            this.audioElement.currentTime = this.state.currentTime;
+                            this.audioElement.play().catch(() => {
+                                this.showToast('⚠️ 音频播放失败，请检查文件是否存在');
+                            });
+                        }
+                        this.state.intervalId = setInterval(this.tick, 100);
+                    } else {
+                        clearInterval(this.state.intervalId);
+                        if (this.audioElement) this.audioElement.pause();
+                    }
+                },
+                async runAIAnalysis() {
+                    if (!this.activeCase?.transcript) {
+                        this.showToast('❌ 无法获取通话转录内容');
+                        return;
+                    }
+                    this.state.analyzing = true;
+                    try {
+                        const response = await fetch(`${this.apiBaseUrl}/api/analyze`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ transcript: this.activeCase.transcript })
+                        });
+                        if (!response.ok) throw new Error(`API 请求失败: ${response.status}`);
+                        const result = await response.json();
+                        if (!result.success) throw new Error(result.error || '分析失败');
+                        if (result.summary) {
+                            this.activeCase.summary = result.summary;
+                            this.editableSummary = this.cloneSummary(result.summary);
+                            this.originalSummarySnapshot = this.cloneSummary(result.summary);
+                        }
+                        if (result.qcReport) {
+                            result.qcReport.violations = (result.qcReport.violations || []).map((v, i) => ({
+                                ...v, id: `ai_v${i}`, status: 'pending'
+                            }));
+                            this.activeCase.qcReport = result.qcReport;
+                        }
+                        this.showToast('✅ AI 分析完成！小结和质检报告已更新');
+                    } catch (error) {
+                        this.showToast(`❌ AI 分析失败: ${error.message}`);
+                    } finally {
+                        this.state.analyzing = false;
+                    }
+                },
+                async uploadAudioAndProcess() {
+                    const selectedFile = this.$refs.audioUploadInput?.files?.[0];
+                    if (!selectedFile) {
+                        this.showToast('请先选择一个音频文件');
+                        return;
+                    }
+                    const formData = new FormData();
+                    formData.append('file', selectedFile);
+                    this.state.isUploading = true;
+                    try {
+                        const response = await fetch(`${this.apiBaseUrl}/api/upload_audio`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const result = await response.json();
+                        if (!response.ok || !result.success) {
+                            throw new Error(result.error || `上传接口失败: ${response.status}`);
+                        }
+                        this.showToast(`✅ 上传成功，案件 ${result.caseId} 已生成`);
+                        this.$refs.audioUploadInput.value = '';
+                        await this.fetchBackendCases();
+                        await this.loadCase(result.caseId);
+                    } catch (error) {
+                        this.showToast(`❌ 上传音频失败: ${error.message}`);
+                    } finally {
+                        this.state.isUploading = false;
+                    }
+                },
+                openAppealModal(violation) {
+                    this.currentAppealViolation = violation;
+                    this.appealReason = '';
+                    this.showAppealModal = true;
+                },
+                closeAppealModal() {
+                    this.showAppealModal = false;
+                    this.currentAppealViolation = null;
+                    this.appealReason = '';
+                },
+                submitAppeal() {
+                    if (!this.appealReason.trim()) {
+                        alert('请填写申诉理由');
+                        return;
+                    }
+                    const violation = this.currentAppealViolation;
+                    this.appeals.push({
+                        id: `appeal_${Date.now()}`,
+                        caseId: this.activeCase.caseInfo.id,
+                        agentName: this.activeCase.caseInfo.agentName,
+                        ruleId: violation.ruleId,
+                        ruleName: violation.ruleName,
+                        penalty: violation.penalty,
+                        evidence: violation.evidence,
+                        reason: this.appealReason.trim(),
+                        status: 'pending',
+                        submitTime: new Date().toLocaleString('zh-CN')
+                    });
+                    this.closeAppealModal();
+                    this.showToast('申诉已提交,等待主管复核');
+                },
+                reviewAppeal(appeal, decision) {
+                    appeal.status = decision;
+                    appeal.reviewNote = decision === 'approved' ? '经复核,坐席说法属实,撤销扣分' : '经复核,违规属实,维持原判';
+                    this.showToast(`申诉已${decision === 'approved' ? '通过' : '驳回'}`);
+                },
+                openSuggestionModal() {
+                    const transcriptText = (this.activeCase?.transcript || []).map(line => `${line.speaker}: ${line.text}`).join('\n');
+                    const summaryData = this.activeCase?.summary || {};
+                    const qcReportData = this.activeCase?.qcReport || {};
+                    const violations = qcReportData?.violations || [];
+                    const score = qcReportData?.score ?? 0;
+                    const riskLevel = summaryData?.["行动项标签"]?.["风险等级"] || '待评估';
+                    const nextAction = summaryData?.["行动项标签"]?.["待办事项"] || '建议补充后续跟进动作';
+                    const transcriptPreview = transcriptText.split('\n').slice(0, 4).join('\n');
+                    const improvementLines = violations.length > 0
+                        ? violations.map((item, index) => `${index + 1}. ${item.ruleName}：${item.suggestion || '建议补充规范开场、保持礼貌并避免强压式表达。'}`)
+                        : ['1. 当前质检无明显违规，建议继续保持身份确认、录音告知和还款确认闭环。'];
+
+                    const text = [
+                        `**总体评价**`,
+                        score >= 90 ? '本次通话整体较稳定，合规风险较低。' : '本次通话存在需要重点复盘的合规或沟通问题。',
+                        ``,
+                        `**亮点与肯定**`,
+                        `- 当前风险等级：${riskLevel}`,
+                        `- 当前待办事项：${nextAction}`,
+                        ``,
+                        `**待改进点**`,
+                        ...improvementLines.map(line => `- ${line}`),
+                        ``,
+                        `**推荐话术**`,
+                        `- 开场建议：“您好，这里是XX银行，为保证通话质量，本次通话将被录音，请问是您本人吗？”`,
+                        `- 协商建议：“我理解您目前有压力，我们先确认一个您能执行的还款时间，我这边帮您做好备注。”`,
+                        ``,
+                        `**通话片段参考**`,
+                        transcriptPreview || '暂无转录内容。'
+                    ].join('\n');
+
+                    this.suggestionHtml = text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                    this.showSuggestionModal = true;
+                },
+                addTagOption(tagKey) {
+                    const newOption = prompt(`为标签 ${tagKey} 新增选项:`);
+                    if (newOption && newOption.trim()) {
+                        this.tagLibrary[tagKey].push(newOption.trim());
+                        this.showToast('标签选项已添加');
+                    }
+                },
+                removeTagOption(tagKey, index) {
+                    if (confirm('确定要删除此标签选项吗?')) {
+                        this.tagLibrary[tagKey].splice(index, 1);
+                        this.showToast('标签选项已删除');
+                    }
+                },
+                addNewRule() {
+                    const ruleId = prompt('规则ID (例如: R008):');
+                    const ruleName = prompt('规则名称:');
+                    const description = prompt('规则描述:');
+                    const penalty = parseInt(prompt('扣分值:') || '10', 10);
+                    if (ruleId && ruleName && description) {
+                        this.qcRules.push({ id: ruleId, name: ruleName, description, penalty, keywords: [] });
+                        this.showToast('规则已添加');
+                    }
+                },
+                editRule(index) {
+                    const rule = this.qcRules[index];
+                    const newPenalty = parseInt(prompt(`修改扣分值 (当前: ${rule.penalty}):`, rule.penalty) || rule.penalty, 10);
+                    rule.penalty = newPenalty;
+                    this.showToast('规则已更新');
+                },
+                deleteRule(index) {
+                    if (confirm('确定要删除此规则吗?')) {
+                        this.qcRules.splice(index, 1);
+                        this.showToast('规则已删除');
+                    }
+                }
+            },
+            async mounted() {
+                await this.fetchBackendCases();
+                if (this.sortedCaseKeys.length > 0) {
+                    await this.loadCase(this.sortedCaseKeys[0]);
+                }
+            },
+            beforeUnmount() {
+                if (this.state.intervalId) {
+                    clearInterval(this.state.intervalId);
+                }
+                if (this.audioElement) {
+                    this.audioElement.pause();
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>
