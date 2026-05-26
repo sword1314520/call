@@ -86,3 +86,16 @@ def upload_file_to_oss(file_path: Path, category: str) -> Dict:
         "object_key": object_key,
         "signed_url": signed_url,
     }
+
+
+def sign_existing_object_url(object_key: str) -> str:
+    """
+    为已经存在于 OSS 中的对象重新生成签名 URL。
+
+    这样数据库里只要保存 object_key，前端查询时就能拿到最新的临时访问地址。
+    """
+    if not object_key:
+        return ""
+
+    bucket = get_bucket()
+    return bucket.sign_url("GET", object_key, OSSConfig.URL_EXPIRE_SECONDS)

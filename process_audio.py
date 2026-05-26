@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from analysis_service import analyze_transcript
+from ffmpeg_utils import configure_pydub_ffmpeg
 from mysql_storage import init_mysql_tables, save_case_record
 from oss_utils import upload_file_to_oss
 
@@ -46,6 +47,9 @@ def convert_m4a_to_wav(input_path: Path, output_path: Path):
         tuple: (音频对象, 时长秒数)
     """
     from pydub import AudioSegment
+
+    # 优先使用项目目录中的 ffmpeg.exe，避免 Windows 下依赖系统 PATH
+    configure_pydub_ffmpeg()
 
     print(f"📂 [加载] 读取音频文件: {input_path.name}")
 
@@ -537,7 +541,9 @@ def process_single_audio(input_path: Path, output_dir: Path) -> dict:
         "case_id": case_id,
         "audio_file_name": input_path.name,
         "original_audio_url": original_audio_oss["signed_url"],
+        "original_audio_object_key": original_audio_oss["object_key"],
         "wav_audio_url": wav_audio_oss["signed_url"],
+        "wav_audio_object_key": wav_audio_oss["object_key"],
         "duration_seconds": duration,
         "transcript": transcript,
         "emotion_timeline": emotion_timeline,

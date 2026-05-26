@@ -258,15 +258,13 @@
     <div id="toast-notification" class="toast"></div>
 
     <!-- 引入 FunASR 生成的真实通话数据 -->
-    <!-- 引入生成的真实数据 (由 process_audio.py 生成) -->
-    <!-- 注意：这些文件位于 data/ 目录下 -->
-    <script src="./data/demo_data_audio1.js"></script>
-    <script src="./data/demo_data_audio2.js"></script>
-
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // 后端 API 地址
+            const API_BASE_URL = 'http://localhost:5001';
+
             // Mock Data
-            const MOCK_DATA = {
+            let MOCK_DATA = {
                 'perfect': {
                     caseInfo: {
                         id: 'CASE-20250116-001',
@@ -373,25 +371,11 @@
                         { speaker: '客户', text: '嗯。', start: 30, end: 31 },
                         { speaker: '坐席', text: '挂了。', start: 35, end: 36 }
                     ]
-                },
-                // 注入 FunASR 生成的真实通话数据
-                'real_audio1': typeof GENERATED_DATA_AUDIO1 !== 'undefined' && GENERATED_DATA_AUDIO1 ? {
-                    ...GENERATED_DATA_AUDIO1,
-                    caseInfo: {
-                        ...GENERATED_DATA_AUDIO1.caseInfo,
-                        customerName: '杨先生 (真实录音)',
-                        agentName: '催收坐席'
-                    }
-                } : null,
-                'real_audio2': typeof GENERATED_DATA_AUDIO2 !== 'undefined' && GENERATED_DATA_AUDIO2 ? {
-                    ...GENERATED_DATA_AUDIO2,
-                    caseInfo: {
-                        ...GENERATED_DATA_AUDIO2.caseInfo,
-                        customerName: '联系人 (真实录音)',
-                        agentName: '催收坐席'
-                    }
-                } : null
+                }
             };
+
+            // 记录哪些案件来自后端数据库，前端渲染时会优先展示它们
+            let BACKEND_CASE_KEYS = [];
 
             // Tag Library (Knowledge Base)
             const TAG_LIBRARY = {
@@ -418,16 +402,6 @@
             // Modification History
             let MODIFICATION_HISTORY = {};
 
-            // 音频文件映射（案件ID -> WAV文件路径）
-            const AUDIO_FILE_MAP = {
-                'real_audio1': './processed/audio1.wav',
-                'real_audio2': './processed/audio2.wav',
-                // 模拟案件没有真实音频
-                'perfect': null,
-                'violation': null,
-                'defect': null
-            };
-
             let currentState = {
                 role: 'agent',
                 activeCaseId: 'perfect',
@@ -438,7 +412,8 @@
                 isEditingSummary: false,
                 summaryModified: false,
                 originalSummary: {},
-                audioElement: null  // 真实音频元素
+                audioElement: null,  // 真实音频元素
+                isUploading: false
             };
 
             const $ = (selector) => document.querySelector(selector);
@@ -458,6 +433,109 @@
                 setTimeout(() => {
                     toast.classList.remove('show');
                 }, 3000);
+            }
+
+            function getValidCaseKeys() {
+                return Object.keys(MOCK_DATA).filter(key => MOCK_DATA[key] !== null);
+            }
+
+            function isBackendCase(caseKey) {
+                return BACKEND_CASE_KEYS.includes(caseKey);
+            }
+
+            function sortCaseKeys(caseKeys) {
+                return [...caseKeys].sort((a, b) => {
+                    const aIsBackend = isBackendCase(a);
+                    const bIsBackend = isBackendCase(b);
+                    if (aIsBackend && !bIsBackend) return -1;
+                    if (!aIsBackend && bIsBackend) return 1;
+                    return 0;
+                });
+            }
+
+            function normalizeBackendCase(caseData) {
+                const safeCase = caseData || {};
+                const qcReport = safeCase.qcReport || { score: 0, violations: [] };
+
+                qcReport.violations = (qcReport.violations || []).map((item, index) => ({
+                    id: item.id || `db_v${index}`,
+                    status: item.status || 'pending',
+                    ...item
+                }));
+
+                return {
+                    ...safeCase,
+                    sourceType: 'backend',
+                    caseInfo: {
+                        customerName: 'AI识别客户',
+                        debtAmount: '¥--',
+                        agentName: 'AI识别坐席',
+                        duration: 0,
+                        ...safeCase.caseInfo
+                    },
+                    summary: safeCase.summary || {},
+                    qcReport,
+                    emotionTimeline: safeCase.emotionTimeline || {
+                        agent: [{ emotion: 'neutral', duration: 1 }],
+                        customer: [{ emotion: 'neutral', duration: 1 }]
+                    },
+                    transcript: safeCase.transcript || [],
+                    storage: safeCase.storage || {}
+                };
+            }
+
+            async function fetchBackendCases() {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/cases?limit=100`);
+                    if (!response.ok) {
+                        throw new Error(`查询案件列表失败: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    if (!result.success) {
+                        throw new Error(result.error || '后端返回失败');
+                    }
+
+                    BACKEND_CASE_KEYS = [];
+                    (result.cases || []).forEach((caseItem) => {
+                        const caseKey = caseItem.caseInfo?.id;
+                        if (!caseKey) {
+                            return;
+                        }
+                        MOCK_DATA[caseKey] = normalizeBackendCase(caseItem);
+                        BACKEND_CASE_KEYS.push(caseKey);
+                    });
+                } catch (error) {
+                    console.error('加载后端案件失败:', error);
+                    showToast(`⚠️ 后端案件加载失败，已回退示例数据: ${error.message}`);
+                }
+            }
+
+            async function refreshCaseListAndOpen(caseId = null) {
+                await fetchBackendCases();
+                renderUIForRole('agent');
+                if (caseId && MOCK_DATA[caseId]) {
+                    await loadCase(caseId);
+                }
+            }
+
+            async function fetchCaseDetail(caseId) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/cases/${encodeURIComponent(caseId)}`);
+                    if (!response.ok) {
+                        throw new Error(`查询案件详情失败: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    if (!result.success || !result.case) {
+                        throw new Error(result.error || '案件详情为空');
+                    }
+
+                    MOCK_DATA[caseId] = normalizeBackendCase(result.case);
+                } catch (error) {
+                    console.error(`加载案件 ${caseId} 详情失败:`, error);
+                    showToast(`⚠️ 案件详情刷新失败: ${error.message}`);
+                }
             }
 
             // Role-based UI Rendering
@@ -488,26 +566,26 @@
                 sidebarContent.innerHTML = `
                     <div class="px-2 mb-2">
                         <h2 class="text-base font-semibold text-gray-800">我的案件</h2>
-                        <p class="text-sm text-gray-500" id="case-count-display">共 ${Object.keys(MOCK_DATA).filter(k => MOCK_DATA[k] !== null).length} 个案件</p>
+                        <p class="text-sm text-gray-500" id="case-count-display">共 ${getValidCaseKeys().length} 个案件</p>
+                    </div>
+                    <div class="mb-4 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 p-3">
+                        <p class="text-sm font-medium text-indigo-800 mb-2">上传音频并自动处理</p>
+                        <input id="audio-upload-input" type="file" accept=".m4a,.wav,.mp3,.mp4,audio/*" class="block w-full text-sm text-gray-600 mb-2">
+                        <button id="audio-upload-btn" class="w-full px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">
+                            上传并处理
+                        </button>
+                        <p class="text-xs text-indigo-500 mt-2">上传后会自动完成 ASR、OSS 上传、MySQL 入库。</p>
                     </div>
                     <div id="case-selector" class="space-y-1"></div>
                 `;
 
                 const caseSelectorContainer = $('#case-selector');
-                // 过滤掉 null 的案件，并按真实录音优先排序
-                const validKeys = Object.keys(MOCK_DATA).filter(key => MOCK_DATA[key] !== null);
-                const sortedKeys = validKeys.sort((a, b) => {
-                    // 真实录音优先显示
-                    const aIsReal = a.startsWith('real_');
-                    const bIsReal = b.startsWith('real_');
-                    if (aIsReal && !bIsReal) return -1;
-                    if (!aIsReal && bIsReal) return 1;
-                    return 0;
-                });
+                // 后端真实案件优先显示，其次显示本地示例数据
+                const sortedKeys = sortCaseKeys(getValidCaseKeys());
 
                 sortedKeys.forEach(key => {
                     const caseData = MOCK_DATA[key];
-                    const isRealAudio = key.startsWith('real_');
+                    const isRealAudio = isBackendCase(key);
                     const item = document.createElement('div');
                     item.className = 'sidebar-item';
                     item.dataset.caseId = key;
@@ -529,9 +607,11 @@
                 });
 
                 renderAgentMainContent();
-                // 优先加载真实录音，如果没有则加载 perfect
-                const defaultCase = sortedKeys.find(k => k.startsWith('real_')) || 'perfect';
-                loadCase(defaultCase);
+                // 优先加载数据库中的真实案件，没有则回退到示例案件
+                const defaultCase = sortedKeys[0] || 'perfect';
+                if (defaultCase) {
+                    loadCase(defaultCase);
+                }
             }
 
             function renderAgentMainContent() {
@@ -654,6 +734,49 @@
                 });
                 $('#gemini-suggestion-btn')?.addEventListener('click', openSuggestionModal);
                 $('#ai-analyze-btn')?.addEventListener('click', runAIAnalysis);
+                $('#audio-upload-btn')?.addEventListener('click', uploadAudioAndProcess);
+            }
+
+            async function uploadAudioAndProcess() {
+                const inputEl = $('#audio-upload-input');
+                const uploadBtn = $('#audio-upload-btn');
+                const selectedFile = inputEl?.files?.[0];
+
+                if (!selectedFile) {
+                    showToast('请先选择一个音频文件');
+                    return;
+                }
+
+                const originalText = uploadBtn.textContent;
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+
+                currentState.isUploading = true;
+                uploadBtn.disabled = true;
+                uploadBtn.textContent = '上传处理中...';
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/upload_audio`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const result = await response.json();
+                    if (!response.ok || !result.success) {
+                        throw new Error(result.error || `上传接口失败: ${response.status}`);
+                    }
+
+                    showToast(`✅ 上传成功，案件 ${result.caseId} 已生成`);
+                    inputEl.value = '';
+                    await refreshCaseListAndOpen(result.caseId);
+                } catch (error) {
+                    console.error('上传音频失败:', error);
+                    showToast(`❌ 上传音频失败: ${error.message}`);
+                } finally {
+                    currentState.isUploading = false;
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = originalText;
+                }
             }
 
             // AI 分析功能 - 调用后端 LLM API
@@ -680,7 +803,7 @@
                 `;
 
                 try {
-                    const response = await fetch('http://localhost:5001/api/analyze', {
+                    const response = await fetch(`${API_BASE_URL}/api/analyze`, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -1522,8 +1645,11 @@
             };
 
             // Case Loading (for Agent View)
-            function loadCase(caseId) {
+            async function loadCase(caseId) {
                 currentState.activeCaseId = caseId;
+                if (isBackendCase(caseId)) {
+                    await fetchCaseDetail(caseId);
+                }
                 const data = MOCK_DATA[caseId];
 
                 // 停止当前播放
@@ -1532,8 +1658,8 @@
                 }
                 currentState.currentTime = 0;
 
-                // 加载真实音频（如果有）
-                const audioPath = AUDIO_FILE_MAP[caseId];
+                // 优先使用数据库返回的 WAV 签名地址
+                const audioPath = data?.storage?.wavAudioUrl || null;
                 if (audioPath) {
                     if (currentState.audioElement) {
                         currentState.audioElement.pause();
@@ -1550,7 +1676,7 @@
                     });
                     currentState.audioElement.addEventListener('error', (e) => {
                         console.error('❌ 音频加载失败:', e);
-                        showToast('⚠️ 音频文件加载失败');
+                        showToast('⚠️ 音频文件加载失败，请检查 OSS 配置或签名地址');
                     });
                 } else {
                     currentState.audioElement = null;
@@ -1986,58 +2112,34 @@
             }
 
             async function getGeminiSuggestion(transcriptText, summaryData, qcReportData) {
-                const apiKey = "";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                const violations = qcReportData?.violations || [];
+                const score = qcReportData?.score ?? 0;
+                const riskLevel = summaryData?.["行动项标签"]?.["风险等级"] || "待评估";
+                const nextAction = summaryData?.["行动项标签"]?.["待办事项"] || "建议补充后续跟进动作";
+                const transcriptPreview = transcriptText.split('\n').slice(0, 4).join('\n');
 
-                const systemPrompt = `你是一位经验丰富的催收业务培训师和质检专家。你的任务是根据提供的通话记录、AI小结和质检报告,为催收坐席提供具体、可执行的沟通优化建议。
-                你的建议需要满足以下要求:
-                1.  **角色定位**:语气专业、客观、有建设性,旨在帮助坐席提升业务能力和合规意识,而不是批评。
-                2.  **内容结构**:
-                    * **总体评价**:首先对本次通话做一个简明扼要的总体评价。
-                    * **亮点与肯定**:如果通话中有做得好的地方,请先予以肯定。
-                    * **待改进点与具体建议**:针对质检报告中的扣分项或小结中反映出的潜在问题,提出具体的、可操作的改进建议。
-                    * **话术示例**:为关键的改进点提供优化后的话术示例。
-                3.  **格式要求**:请使用Markdown格式,要点清晰,便于阅读。`;
+                const improvementLines = violations.length > 0
+                    ? violations.map((item, index) => `${index + 1}. ${item.ruleName}：${item.suggestion || '建议补充规范开场、保持礼貌并避免强压式表达。'}`)
+                    : ['1. 当前质检无明显违规，建议继续保持身份确认、录音告知和还款确认闭环。'];
 
-                const userQuery = `请根据以下催收通话的详细信息,为坐席提供沟通优化建议。
-
-                **1. AI智能小结:**
-                ${JSON.stringify(summaryData, null, 2)}
-
-                **2. AI智能质检报告:**
-                ${JSON.stringify(qcReportData, null, 2)}
-
-                **3. 通话完整记录:**
-                ${transcriptText}
-                `;
-
-                const payload = {
-                    contents: [{ parts: [{ text: userQuery }] }],
-                    systemInstruction: {
-                        parts: [{ text: systemPrompt }]
-                    },
-                };
-
-                try {
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    if (!response.ok) {
-                        throw new Error(`API call failed with status: ${response.status}`);
-                    }
-                    const result = await response.json();
-                    const candidate = result.candidates?.[0];
-                    if (candidate && candidate.content?.parts?.[0]?.text) {
-                        return candidate.content.parts[0].text;
-                    } else {
-                        return "无法从AI获取建议,请检查返回数据结构。";
-                    }
-                } catch (error) {
-                    console.error("Gemini API call error:", error);
-                    return `获取AI建议时出错: ${error.message}。请检查网络连接或API配置。`;
-                }
+                return [
+                    `**总体评价**`,
+                    score >= 90 ? '本次通话整体较稳定，合规风险较低。' : '本次通话存在需要重点复盘的合规或沟通问题。',
+                    ``,
+                    `**亮点与肯定**`,
+                    `- 当前风险等级：${riskLevel}`,
+                    `- 当前待办事项：${nextAction}`,
+                    ``,
+                    `**待改进点**`,
+                    ...improvementLines.map(line => `- ${line}`),
+                    ``,
+                    `**推荐话术**`,
+                    `- 开场建议：“您好，这里是XX银行，为保证通话质量，本次通话将被录音，请问是您本人吗？”`,
+                    `- 协商建议：“我理解您目前有压力，我们先确认一个您能执行的还款时间，我这边帮您做好备注。”`,
+                    ``,
+                    `**通话片段参考**`,
+                    transcriptPreview || '暂无转录内容。'
+                ].join('\n');
             }
 
             $('#close-suggestion-modal-btn')?.addEventListener('click', () => {
@@ -2050,7 +2152,10 @@
             });
 
             // Initial Load
-            renderUIForRole('agent');
+            (async () => {
+                await fetchBackendCases();
+                renderUIForRole('agent');
+            })();
         });
     </script>
 </body>

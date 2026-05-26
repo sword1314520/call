@@ -9,9 +9,10 @@ MySQL 存储模块
 3. 把 transcript、summary、qcReport、情绪结果统一落库
 """
 
+import datetime
 import json
 import os
-from typing import Dict
+from typing import Dict, List, Optional
 
 import pymysql
 from dotenv import load_dotenv
@@ -55,7 +56,9 @@ def init_mysql_tables():
         case_id VARCHAR(64) NOT NULL COMMENT '案件编号',
         audio_file_name VARCHAR(255) NOT NULL COMMENT '原始音频文件名',
         original_audio_url TEXT COMMENT '原始音频 OSS 地址',
+        original_audio_object_key VARCHAR(512) COMMENT '原始音频 OSS 对象路径',
         wav_audio_url TEXT COMMENT '转码后 WAV 音频 OSS 地址',
+        wav_audio_object_key VARCHAR(512) COMMENT 'WAV 音频 OSS 对象路径',
         duration_seconds DECIMAL(10, 2) DEFAULT 0 COMMENT '音频时长',
         transcript_json LONGTEXT COMMENT 'ASR 转录结果 JSON',
         emotion_timeline_json LONGTEXT COMMENT '情绪时间轴 JSON',
@@ -86,7 +89,9 @@ def save_case_record(record: Dict):
         case_id,
         audio_file_name,
         original_audio_url,
+        original_audio_object_key,
         wav_audio_url,
+        wav_audio_object_key,
         duration_seconds,
         transcript_json,
         emotion_timeline_json,
@@ -98,7 +103,9 @@ def save_case_record(record: Dict):
         %(case_id)s,
         %(audio_file_name)s,
         %(original_audio_url)s,
+        %(original_audio_object_key)s,
         %(wav_audio_url)s,
+        %(wav_audio_object_key)s,
         %(duration_seconds)s,
         %(transcript_json)s,
         %(emotion_timeline_json)s,
@@ -113,7 +120,9 @@ def save_case_record(record: Dict):
         "case_id": record["case_id"],
         "audio_file_name": record["audio_file_name"],
         "original_audio_url": record["original_audio_url"],
+        "original_audio_object_key": record.get("original_audio_object_key", ""),
         "wav_audio_url": record["wav_audio_url"],
+        "wav_audio_object_key": record.get("wav_audio_object_key", ""),
         "duration_seconds": record["duration_seconds"],
         "transcript_json": json.dumps(record["transcript"], ensure_ascii=False),
         "emotion_timeline_json": json.dumps(record["emotion_timeline"], ensure_ascii=False),
@@ -127,3 +136,112 @@ def save_case_record(record: Dict):
             cursor.execute(sql, payload)
     finally:
         connection.close()
+
+
+def _safe_json_loads(raw_value: Optional[str], default_value):
+    """兼容数据库中为空字符串或空值的 JSON 字段。"""
+    if not raw_value:
+        return default_value
+    try:
+        return json.loads(raw_value)
+    except Exception:
+        return default_value
+
+
+def _serialize_datetime(value):
+    """把 datetime 转成前端容易处理的字符串。"""
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return value
+
+
+def get_case_record(case_id: str) -> Optional[Dict]:
+    """按 case_id 查询单条案件记录。"""
+    sql = """
+    SELECT
+        case_id,
+        audio_file_name,
+        original_audio_url,
+        original_audio_object_key,
+        wav_audio_url,
+        wav_audio_object_key,
+        duration_seconds,
+        transcript_json,
+        emotion_timeline_json,
+        summary_json,
+        qc_report_json,
+        created_at,
+        updated_at
+    FROM qc_cases
+    WHERE case_id = %s
+    LIMIT 1
+    """
+
+    connection = get_mysql_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, (case_id,))
+            return cursor.fetchone()
+    finally:
+        connection.close()
+
+
+def list_case_records(limit: int = 100) -> List[Dict]:
+    """查询案件列表，按更新时间倒序返回。"""
+    sql = """
+    SELECT
+        case_id,
+        audio_file_name,
+        original_audio_url,
+        original_audio_object_key,
+        wav_audio_url,
+        wav_audio_object_key,
+        duration_seconds,
+        transcript_json,
+        emotion_timeline_json,
+        summary_json,
+        qc_report_json,
+        created_at,
+        updated_at
+    FROM qc_cases
+    ORDER BY updated_at DESC
+    LIMIT %s
+    """
+
+    connection = get_mysql_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql, (limit,))
+            return cursor.fetchall()
+    finally:
+        connection.close()
+
+
+def format_case_record(row: Dict) -> Dict:
+    """把数据库记录整理成前端接口直接可用的结构。"""
+    return {
+        "caseInfo": {
+            "id": row["case_id"],
+            "customerName": "AI识别客户",
+            "debtAmount": "¥--",
+            "date": _serialize_datetime(row.get("created_at")),
+            "agentName": "AI识别坐席",
+            "duration": float(row.get("duration_seconds") or 0),
+            "audioFileName": row.get("audio_file_name", "")
+        },
+        "storage": {
+            "originalAudioUrl": row.get("original_audio_url", ""),
+            "originalAudioObjectKey": row.get("original_audio_object_key", ""),
+            "wavAudioUrl": row.get("wav_audio_url", ""),
+            "wavAudioObjectKey": row.get("wav_audio_object_key", "")
+        },
+        "summary": _safe_json_loads(row.get("summary_json"), {}),
+        "qcReport": _safe_json_loads(row.get("qc_report_json"), {"score": 0, "violations": []}),
+        "emotionTimeline": _safe_json_loads(
+            row.get("emotion_timeline_json"),
+            {"agent": [{"emotion": "neutral", "duration": 1}], "customer": [{"emotion": "neutral", "duration": 1}]}
+        ),
+        "transcript": _safe_json_loads(row.get("transcript_json"), []),
+        "createdAt": _serialize_datetime(row.get("created_at")),
+        "updatedAt": _serialize_datetime(row.get("updated_at"))
+    }
