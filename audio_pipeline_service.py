@@ -29,6 +29,7 @@ from process_audio import (
 
 PROJECT_ROOT = Path(__file__).parent
 OUTPUT_DIR = PROJECT_ROOT / "processed"
+DATA_DIR = PROJECT_ROOT / "data"
 
 
 def build_demo_data(transcript: list, audio_info: dict, emotion_timeline: dict, summary: dict, qc_report: dict) -> dict:
@@ -58,8 +59,10 @@ def save_debug_outputs(base_name: str, transcript: list, final_data: dict) -> Di
     2. 便于和数据库中的结果做比对
     """
     OUTPUT_DIR.mkdir(exist_ok=True)
+    DATA_DIR.mkdir(exist_ok=True)
 
-    js_output_path = PROJECT_ROOT / f"demo_data_{base_name}.js"
+    # JS 调试数据统一放到 data/ 目录，和现有 demo_data_audio1.js / demo_data_audio2.js 保持一致
+    js_output_path = DATA_DIR / f"demo_data_{base_name}.js"
     js_content = f"const GENERATED_DATA_{base_name.upper()} = {json.dumps(final_data, ensure_ascii=False, indent=2)};"
     with open(js_output_path, "w", encoding="utf-8") as file_obj:
         file_obj.write(js_content)

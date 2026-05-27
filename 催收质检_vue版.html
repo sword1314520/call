@@ -229,6 +229,8 @@
                             @click="state.adminView = 'tags'">标签知识库</div>
                         <div class="sidebar-item" :class="{ 'sidebar-item-active': state.adminView === 'rules' }"
                             @click="state.adminView = 'rules'">质检规则</div>
+                        <div class="sidebar-item" :class="{ 'sidebar-item-active': state.adminView === 'users' }"
+                            @click="state.adminView = 'users'">用户管理</div>
                     </div>
                 </template>
             </nav>
@@ -418,37 +420,123 @@
 
             <template v-else-if="state.role === 'supervisor'">
                 <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-                    <h2 class="text-lg font-semibold text-gray-900">团队管理</h2>
+                    <h2 class="text-lg font-semibold text-gray-900">
+                        {{ state.supervisorView === 'dashboard' ? '团队数据看板' : state.supervisorView === 'appeals' ? '申诉复核中心' : '团队案件总览' }}
+                    </h2>
                     <span class="role-badge bg-purple-100 text-purple-800">催收主管</span>
                 </header>
                 <div class="flex-1 p-6 overflow-auto" v-if="state.supervisorView === 'dashboard'">
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                         <div class="bg-white rounded-lg shadow-md p-6">
-                            <p class="text-sm text-gray-500">总案件数</p>
-                            <p class="text-3xl font-bold mt-2">{{ validCaseKeys.length }}</p>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-500">今日通话量</p>
+                                    <p class="text-3xl font-bold text-gray-900 mt-2">128</p>
+                                </div>
+                                <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                    <span class="text-blue-600 font-bold">话</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-green-600 mt-2">↑ 12% 较昨日</p>
                         </div>
                         <div class="bg-white rounded-lg shadow-md p-6">
-                            <p class="text-sm text-gray-500">平均得分</p>
-                            <p class="text-3xl font-bold mt-2">{{ averageScore }}</p>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-500">平均通话时长</p>
+                                    <p class="text-3xl font-bold text-gray-900 mt-2">3:24</p>
+                                </div>
+                                <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                                    <span class="text-green-600 font-bold">时</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-green-600 mt-2">↓ 8秒 较上周</p>
                         </div>
                         <div class="bg-white rounded-lg shadow-md p-6">
-                            <p class="text-sm text-gray-500">待复核申诉</p>
-                            <p class="text-3xl font-bold mt-2">{{ pendingAppeals.length }}</p>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-500">平均得分</p>
+                                    <p class="text-3xl font-bold text-gray-900 mt-2">{{ averageScore }}</p>
+                                </div>
+                                <div class="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                                    <span class="text-yellow-600 font-bold">分</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-red-600 mt-2">↓ 2分 较上月</p>
                         </div>
                         <div class="bg-white rounded-lg shadow-md p-6">
-                            <p class="text-sm text-gray-500">高风险案件</p>
-                            <p class="text-3xl font-bold mt-2">{{ highRiskCases }}</p>
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <p class="text-sm text-gray-500">待复核申诉</p>
+                                    <p class="text-3xl font-bold text-gray-900 mt-2">{{ pendingAppeals.length }}</p>
+                                </div>
+                                <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                                    <span class="text-red-600 font-bold">申</span>
+                                </div>
+                            </div>
+                            <p class="text-xs text-yellow-600 mt-2">需今日处理</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                        <div class="xl:col-span-2 bg-white rounded-lg shadow-md p-6">
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-lg font-semibold">团队案件表现</h3>
+                                <span class="text-sm text-gray-500">高风险案件 {{ highRiskCases }} 个</span>
+                            </div>
+                            <div class="space-y-4">
+                                <div v-for="key in sortedCaseKeys" :key="`dashboard-${key}`"
+                                    class="border border-gray-200 rounded-lg p-4">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="font-semibold">{{ cases[key].caseInfo.customerName }}</p>
+                                            <p class="text-sm text-gray-500 mt-1">{{ cases[key].caseInfo.id }}</p>
+                                        </div>
+                                        <span class="text-sm font-bold" :class="qcScoreClass(cases[key].qcReport.score)">
+                                            {{ cases[key].qcReport.score }}分
+                                        </span>
+                                    </div>
+                                    <div class="mt-3 text-sm text-gray-600">
+                                        风险等级：{{ cases[key].summary?.["行动项标签"]?.["风险等级"] || '待评估' }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <h3 class="text-lg font-semibold mb-4">主管关注事项</h3>
+                            <div class="space-y-3 text-sm">
+                                <div class="p-3 bg-red-50 rounded-lg text-red-700">高风险案件需要优先复核，避免投诉升级。</div>
+                                <div class="p-3 bg-yellow-50 rounded-lg text-yellow-700">对得分低于 80 分的案件安排复盘。</div>
+                                <div class="p-3 bg-blue-50 rounded-lg text-blue-700">跟踪申诉结论，沉淀为团队培训案例。</div>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="flex-1 p-6 overflow-auto" v-else-if="state.supervisorView === 'appeals'">
-                    <div class="bg-white rounded-lg shadow-md p-6 space-y-4">
-                        <div v-if="appeals.length === 0" class="text-gray-500">暂无申诉记录</div>
-                        <div v-for="appeal in appeals" :key="appeal.id" class="border border-gray-200 rounded-lg p-4">
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <div class="flex space-x-4 border-b border-gray-200 mb-4">
+                            <button class="tab-button" :class="{ 'tab-button-active': state.appealTab === 'pending' }"
+                                @click="state.appealTab = 'pending'">
+                                待处理
+                                <span class="ml-1 bg-red-100 text-red-800 px-2 py-0.5 rounded-full text-xs">{{ pendingAppeals.length }}</span>
+                            </button>
+                            <button class="tab-button" :class="{ 'tab-button-active': state.appealTab === 'approved' }"
+                                @click="state.appealTab = 'approved'">
+                                已通过
+                                <span class="ml-1 bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-xs">{{ approvedAppeals.length }}</span>
+                            </button>
+                            <button class="tab-button" :class="{ 'tab-button-active': state.appealTab === 'rejected' }"
+                                @click="state.appealTab = 'rejected'">
+                                已驳回
+                                <span class="ml-1 bg-gray-100 text-gray-800 px-2 py-0.5 rounded-full text-xs">{{ rejectedAppeals.length }}</span>
+                            </button>
+                        </div>
+                        <div v-if="filteredAppeals.length === 0" class="text-center py-12 text-gray-500">
+                            暂无当前状态的申诉记录
+                        </div>
+                        <div v-for="appeal in filteredAppeals" :key="appeal.id" class="border border-gray-200 rounded-lg p-4 mb-4">
                             <div class="flex justify-between">
                                 <div>
                                     <p class="font-semibold">{{ appeal.ruleName }}</p>
-                                    <p class="text-sm text-gray-500 mt-1">{{ appeal.caseId }} / {{ appeal.agentName }}</p>
+                                    <p class="text-sm text-gray-500 mt-1">{{ appeal.caseId }} / {{ appeal.agentName }} / {{ appeal.submitTime }}</p>
                                 </div>
                                 <span class="text-xs px-2 py-1 rounded-full"
                                     :class="appeal.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : appeal.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
@@ -463,36 +551,55 @@
                                 <button @click="reviewAppeal(appeal, 'rejected')"
                                     class="px-3 py-2 bg-red-600 text-white rounded-md">驳回</button>
                             </div>
+                            <div v-else-if="appeal.reviewNote" class="mt-3 p-2 bg-gray-100 rounded text-sm text-gray-600">
+                                <span class="font-medium">复核备注:</span> {{ appeal.reviewNote }}
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div class="flex-1 p-6 overflow-auto" v-else>
-                    <div class="bg-white rounded-lg shadow-md p-6">
-                        <h3 class="text-lg font-semibold mb-4">团队案件</h3>
-                        <div class="space-y-3">
-                            <div v-for="key in sortedCaseKeys" :key="`team-${key}`" class="border rounded-lg p-4">
-                                <div class="flex justify-between">
-                                    <div>
-                                        <p class="font-semibold">{{ cases[key].caseInfo.customerName }}</p>
-                                        <p class="text-sm text-gray-500 mt-1">{{ cases[key].caseInfo.id }}</p>
-                                    </div>
-                                    <p class="font-bold" :class="qcScoreClass(cases[key].qcReport.score)">
-                                        {{ cases[key].qcReport.score }}分
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">案件ID</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">客户</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">坐席</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">债务金额</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">质检分</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <tr v-for="key in sortedCaseKeys" :key="`team-row-${key}`" class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ cases[key].caseInfo.id }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ cases[key].caseInfo.customerName }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ cases[key].caseInfo.agentName }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ cases[key].caseInfo.debtAmount || '¥--' }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="text-sm font-semibold" :class="qcScoreClass(cases[key].qcReport.score)">
+                                            {{ cases[key].qcReport.score }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">已完成</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </template>
 
             <template v-else-if="state.role === 'analyst'">
                 <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-                    <h2 class="text-lg font-semibold text-gray-900">数据分析师视图</h2>
+                    <h2 class="text-lg font-semibold text-gray-900">
+                        {{ state.analystView === 'overview' ? '数据分析总览' : state.analystView === 'emotion' ? '情绪分析面板' : '数据导出中心' }}
+                    </h2>
                     <span class="role-badge bg-blue-100 text-blue-800">数据分析师</span>
                 </header>
                 <div class="flex-1 p-6 overflow-auto">
-                    <div v-if="state.analystView === 'overview'" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div v-if="state.analystView === 'overview'" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         <div class="bg-white rounded-lg shadow-md p-6">
                             <h3 class="text-lg font-semibold mb-4">风险等级分布</h3>
                             <div class="space-y-2 text-sm">
@@ -510,6 +617,14 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <h3 class="text-lg font-semibold mb-4">案件概览</h3>
+                            <div class="space-y-3 text-sm">
+                                <div class="flex justify-between"><span>案件总数</span><span>{{ validCaseKeys.length }}</span></div>
+                                <div class="flex justify-between"><span>平均得分</span><span>{{ averageScore }}</span></div>
+                                <div class="flex justify-between"><span>高风险案件</span><span>{{ highRiskCases }}</span></div>
+                            </div>
+                        </div>
                     </div>
                     <div v-else-if="state.analystView === 'emotion'" class="bg-white rounded-lg shadow-md p-6">
                         <h3 class="text-lg font-semibold mb-4">情绪分析</h3>
@@ -523,6 +638,41 @@
                     </div>
                     <div v-else class="bg-white rounded-lg shadow-md p-6">
                         <h3 class="text-lg font-semibold mb-4">数据导出</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">开始日期</label>
+                                <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">结束日期</label>
+                                <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">坐席</label>
+                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option>全部</option>
+                                    <option>李婷</option>
+                                    <option>王刚</option>
+                                    <option>赵磊</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">风险等级</label>
+                                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option>全部</option>
+                                    <option>低</option>
+                                    <option>中</option>
+                                    <option>高</option>
+                                    <option>极高</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="space-y-3 mb-6 text-sm">
+                            <label class="flex items-center"><input type="checkbox" class="mr-2" checked> 智能小结数据</label>
+                            <label class="flex items-center"><input type="checkbox" class="mr-2" checked> 质检报告数据</label>
+                            <label class="flex items-center"><input type="checkbox" class="mr-2"> 完整对话文本</label>
+                            <label class="flex items-center"><input type="checkbox" class="mr-2"> 情绪分析数据</label>
+                        </div>
                         <div class="flex gap-3">
                             <button @click="showToast('正在导出CSV格式数据...')"
                                 class="px-4 py-2 bg-indigo-600 text-white rounded-md">导出 CSV</button>
@@ -535,12 +685,14 @@
 
             <template v-else>
                 <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-                    <h2 class="text-lg font-semibold text-gray-900">系统管理员视图</h2>
+                    <h2 class="text-lg font-semibold text-gray-900">
+                        {{ state.adminView === 'tags' ? '标签库管理' : '质检规则库管理' }}
+                    </h2>
                     <span class="role-badge bg-gray-200 text-gray-800">系统管理员</span>
                 </header>
                 <div class="flex-1 p-6 overflow-auto">
                     <div v-if="state.adminView === 'tags'" class="bg-white rounded-lg shadow-md p-6">
-                        <h3 class="text-lg font-semibold mb-4">标签知识库</h3>
+                        <p class="text-sm text-gray-600 mb-6">管理智能小结中使用的标签选项，支持业务部门灵活调整标签库。</p>
                         <div class="space-y-4">
                             <div v-for="(options, tagKey) in tagLibrary" :key="tagKey" class="border rounded-lg p-4">
                                 <div class="flex justify-between items-center mb-3">
@@ -558,14 +710,14 @@
                             </div>
                         </div>
                     </div>
-                    <div v-else class="bg-white rounded-lg shadow-md p-6">
+                    <div v-else-if="state.adminView === 'rules'" class="bg-white rounded-lg shadow-md p-6">
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-semibold">质检规则</h3>
+                            <p class="text-sm text-gray-600">管理质检规则，支持配置规则描述、关键词和扣分值。</p>
                             <button @click="addNewRule" class="px-4 py-2 bg-indigo-600 text-white rounded-md">新增规则</button>
                         </div>
                         <div class="space-y-3">
                             <div v-for="(rule, index) in qcRules" :key="rule.id" class="border rounded-lg p-4">
-                                <div class="flex justify-between">
+                                <div class="flex justify-between items-start">
                                     <div>
                                         <p class="font-semibold">{{ rule.id }} - {{ rule.name }}</p>
                                         <p class="text-sm text-gray-500 mt-1">{{ rule.description }}</p>
@@ -578,8 +730,48 @@
                                             class="px-3 py-1 bg-red-600 text-white rounded-md text-sm">删除</button>
                                     </div>
                                 </div>
+                                <div class="grid grid-cols-2 gap-4 text-sm mt-4">
+                                    <div>
+                                        <span class="text-gray-500">扣分值:</span>
+                                        <span class="font-medium text-red-600 ml-2">-{{ rule.penalty }}分</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-500">关键词:</span>
+                                        <span class="font-medium ml-2">{{ rule.keywords.length > 0 ? rule.keywords.join(', ') : '无' }}</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
+                    </div>
+                    <div v-else class="bg-white rounded-lg shadow-md overflow-hidden">
+                        <div class="p-6 border-b border-gray-200">
+                            <h3 class="text-lg font-semibold">用户管理</h3>
+                            <p class="text-sm text-gray-600 mt-1">查看系统中的角色、邮箱和账号状态。</p>
+                        </div>
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">姓名</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">角色</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">邮箱</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <tr v-for="user in systemUsers" :key="user.email">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ user.name }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 py-1 text-xs font-medium rounded-full" :class="user.roleBadgeClass">{{ user.roleLabel }}</span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ user.email }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">激活</span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-indigo-600 hover:text-indigo-900 cursor-pointer">编辑</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </template>
@@ -784,6 +976,7 @@
                         supervisorView: 'dashboard',
                         analystView: 'overview',
                         adminView: 'tags'
+                        , appealTab: 'pending'
                     },
                     editableSummary: {},
                     originalSummarySnapshot: {},
@@ -796,7 +989,19 @@
                     highlightedRange: null,
                     suggestionHtml: '',
                     audioElement: null,
-                    currentUserName: '演示用户'
+                    currentUserName: '演示用户',
+                    roleUserMap: {
+                        agent: '催收坐席',
+                        supervisor: '催收主管',
+                        analyst: '数据分析师',
+                        admin: '系统管理员'
+                    },
+                    systemUsers: [
+                        { name: '李婷', roleLabel: '催收坐席', roleBadgeClass: 'bg-blue-100 text-blue-800', email: 'liting@example.com' },
+                        { name: '王刚', roleLabel: '催收坐席', roleBadgeClass: 'bg-blue-100 text-blue-800', email: 'wanggang@example.com' },
+                        { name: '张主管', roleLabel: '催收主管', roleBadgeClass: 'bg-purple-100 text-purple-800', email: 'zhangzg@example.com' },
+                        { name: '周分析', roleLabel: '数据分析师', roleBadgeClass: 'bg-cyan-100 text-cyan-800', email: 'zhoufx@example.com' }
+                    ]
                 };
             },
             computed: {
@@ -817,6 +1022,15 @@
                 },
                 pendingAppeals() {
                     return this.appeals.filter(a => a.status === 'pending');
+                },
+                approvedAppeals() {
+                    return this.appeals.filter(a => a.status === 'approved');
+                },
+                rejectedAppeals() {
+                    return this.appeals.filter(a => a.status === 'rejected');
+                },
+                filteredAppeals() {
+                    return this.appeals.filter(a => a.status === this.state.appealTab);
                 },
                 averageScore() {
                     const scores = this.validCaseKeys.map(key => this.cases[key].qcReport.score || 0);
@@ -855,6 +1069,9 @@
                 },
                 currentModifications() {
                     return this.modificationHistory[this.state.activeCaseId] || [];
+                },
+                currentRoleLabel() {
+                    return this.roleUserMap[this.state.role] || '演示用户';
                 }
             },
             methods: {
@@ -1238,6 +1455,12 @@
                 await this.fetchBackendCases();
                 if (this.sortedCaseKeys.length > 0) {
                     await this.loadCase(this.sortedCaseKeys[0]);
+                }
+                this.currentUserName = this.currentRoleLabel;
+            },
+            watch: {
+                'state.role'(newRole) {
+                    this.currentUserName = this.roleUserMap[newRole] || '演示用户';
                 }
             },
             beforeUnmount() {
